@@ -1,0 +1,15 @@
+Metadata-Version: 2.4
+Name: tls_parser
+Version: 2.0.2
+Summary: Small library to parse TLS records.
+Home-page: https://github.com/nabla-c0d3/tls_parser
+Author: Alban Diquet
+Author-email: nabla.c0d3@gmail.com
+Requires-Python: >=3.8
+License-File: LICENSE
+Dynamic: author
+Dynamic: author-email
+Dynamic: home-page
+Dynamic: license-file
+Dynamic: requires-python
+Dynamic: summary
