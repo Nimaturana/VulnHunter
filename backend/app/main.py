@@ -29,8 +29,8 @@ except ImportError as e:
 
 # Inicializar FastAPI
 app = FastAPI(
-    title="WebSecure Pro - API de Seguridad Web",  # MEJORADO EL TÍTULO/CAMBIAR NOMBRE ES SOLO PRUEBA 
-    description="Sistema profesional de escaneo de vulnerabilidades web - Detecta XSS, SQL Injection y más",
+    title="VulnHunter - API de Seguridad Web",  # MEJORADO EL TÍTULO/CAMBIAR NOMBRE ES SOLO PRUEBA 
+    description="Sistema profesional de escaneo de vulnerabilidades web: detecta XSS, SQL Injection, configuraciones inseguras de cabeceras HTTP, directorios y archivos sensibles expuestos, y servicios en puertos abiertos.",
     version="1.0.0",
     docs_url="/docs",
     redoc_url="/redoc"
@@ -112,7 +112,7 @@ async def root():
     Endpoint de bienvenida
     """
     return {
-        "message": "WebSecure Pro - Sistema de Monitoreo de Vulnerabilidades Web",
+        "message": "VulnHunter - Sistema de Monitoreo de Vulnerabilidades Web",
         "version": "1.0.0",
         "docs": "/docs",
         "features": ["XSS Detection", "SQL Injection Detection", "PDF Reports"],
@@ -532,6 +532,17 @@ async def run_sql_scan(url: str) -> Dict:
         return result
     except Exception as e:
         print(f"Error en SQL scan: {e}")
+        return {"vulnerable": False, "error": str(e)}
+
+# NUEVO: Funciones para scanners adicionales
+async def run_headers_scan(url: str) -> Dict:
+    """Ejecutar scanner de headers de seguridad de forma asíncrona"""
+    try:
+        loop = asyncio.get_event_loop()
+        result = await loop.run_in_executor(None, headers_scanner.scan, url)
+        return result
+    except Exception as e:
+        print(f"Error en Headers scan: {e}")
         return {"vulnerable": False, "error": str(e)}
 
 def calculate_risk_score(vulnerabilities: List[Dict]) -> tuple:

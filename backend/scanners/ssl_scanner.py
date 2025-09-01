@@ -254,3 +254,53 @@ class SSLScanner:
             'status': 'VULNERABLE' if vulnerabilities else 'SECURE',
             'timestamp': datetime.now().isoformat()
         }
+
+        # AGREGAR AL FINAL DE ssl_scanner.py
+
+if __name__ == "__main__":
+    import sys
+    
+    # URL de prueba por defecto
+    test_url = "https://httpbin.org"
+    
+    # Usar URL del argumento si se proporciona
+    if len(sys.argv) > 1:
+        test_url = sys.argv[1]
+    
+    print(f"🔒 Iniciando escaneo SSL/TLS de: {test_url}")
+    
+    try:
+        scanner = SSLScanner()
+        result = scanner.scan(test_url)
+        
+        print(f"\n🔍 SSL/TLS Scan Summary")
+        print(f"📋 URL: {result['url']}")
+        print(f"⏱️  Duración: {result['scan_duration']}s")
+        print(f"📊 Estado: {result['status']}")
+        print(f"⚠️  Vulnerabilidades: {result['vulnerabilities_found']}")
+        print(f"📅 Fecha: {result['timestamp']}")
+        
+        if result['vulnerabilities_found'] > 0:
+            print(f"\n📋 VULNERABILIDADES ENCONTRADAS:")
+            for i, vuln in enumerate(result['vulnerabilities'], 1):
+                severity_icon = {
+                    'CRITICAL': '💀',
+                    'HIGH': '🚨',
+                    'MEDIUM': '⚠️',
+                    'LOW': 'ℹ️'
+                }.get(vuln['severity'], '❓')
+                
+                print(f"{i}. {severity_icon} [{vuln['severity']}] {vuln['description']}")
+            
+            print(f"\n📄 Detalles completos:")
+            for vuln in result['vulnerabilities']:
+                print(f"{vuln['description']}")
+                if vuln.get('details'):
+                    print(f"   Detalles: {vuln['details']}")
+                print(f"   Recomendación: {vuln['recommendation']}")
+        else:
+            print(f"\n✅ ¡Configuración SSL/TLS segura!")
+            
+    except Exception as e:
+        print(f"❌ Error durante el escaneo: {e}")
+        sys.exit(1)
