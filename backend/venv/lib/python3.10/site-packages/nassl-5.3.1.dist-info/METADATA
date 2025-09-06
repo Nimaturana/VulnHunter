@@ -1,0 +1,32 @@
+Metadata-Version: 2.4
+Name: nassl
+Version: 5.3.1
+Summary: Experimental OpenSSL wrapper for Python 3.9+ and SSLyze.
+Home-page: https://github.com/nabla-c0d3/nassl
+Author: Alban Diquet
+Author-email: nabla.c0d3@gmail.com
+Keywords: ssl tls scan security library
+Classifier: Development Status :: 4 - Beta
+Classifier: Intended Audience :: Developers
+Classifier: Intended Audience :: System Administrators
+Classifier: Natural Language :: French
+Classifier: License :: OSI Approved :: GNU Affero General Public License v3
+Classifier: Programming Language :: Python :: 3.9
+Classifier: Programming Language :: Python :: 3.10
+Classifier: Programming Language :: Python :: 3.11
+Classifier: Programming Language :: Python :: 3.12
+Classifier: Programming Language :: Python :: 3.13
+Classifier: Topic :: System :: Networking
+Classifier: Topic :: System :: Monitoring
+Classifier: Topic :: System :: Networking :: Monitoring
+Classifier: Topic :: Security
+Requires-Python: >=3.9
+License-File: LICENSE.txt
+Dynamic: author
+Dynamic: author-email
+Dynamic: classifier
+Dynamic: home-page
+Dynamic: keywords
+Dynamic: license-file
+Dynamic: requires-python
+Dynamic: summary
