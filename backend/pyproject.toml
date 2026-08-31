@@ -1,0 +1,47 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "vulnhunter"
+version = "0.1.0"
+requires-python = ">=3.12"
+dependencies = [
+  "fastapi>=0.115,<1",
+  "uvicorn[standard]>=0.30,<1",
+  "pydantic>=2.10,<3",
+  "requests>=2.32,<3",
+  "beautifulsoup4>=4.12,<5",
+  "reportlab>=4.2,<5",
+  "matplotlib>=3.10,<4",
+]
+
+[project.optional-dependencies]
+infrastructure = [
+  "sqlalchemy>=2.0.36,<3",
+  "psycopg[binary]>=3.2,<4",
+  "alembic>=1.14,<2",
+  "celery>=5.4,<6",
+  "redis>=5,<7",
+  "python-nmap>=0.7.1,<1",
+]
+auth = [
+  "python-multipart>=0.0.12,<1",
+  "python-jose[cryptography]>=3.3,<4",
+  "passlib[bcrypt]>=1.7,<2",
+]
+dev = [
+  "pytest>=8.3,<10",
+  "ruff>=0.9,<1",
+]
+
+[tool.setuptools.packages.find]
+include = ["vulnhunter*"]
+
+[tool.pytest.ini_options]
+testpaths = ["../tests"]
+pythonpath = ["."]
+
+[tool.black]
+line-length = 100
+target-version = ["py312"]

@@ -1,3 +1,17 @@
 .env
+.env.*
+!.env.example
 *.log
+*.py[cod]
+*.egg-info/
 __pycache__/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv/
+node_modules/
+frontend/dist/
+artifacts/reports/*.pdf
+!artifacts/reports/.gitkeep
+artifacts/cache/

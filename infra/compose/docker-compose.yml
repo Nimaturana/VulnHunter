@@ -1,0 +1,45 @@
+services:
+  api:
+    build:
+      context: ../..
+      dockerfile: infra/docker/backend.Dockerfile
+    command: uvicorn vulnhunter.main:app --host 0.0.0.0 --port 8000
+    environment:
+      ENVIRONMENT: development
+      DATABASE_URL: postgresql://vulnhunter:vulnhunter@postgres:5432/vulnhunter
+      REDIS_URL: redis://redis:6379/0
+      REPORT_DIR: /data/reports
+    ports:
+      - "8000:8000"
+    volumes:
+      - ../../artifacts/reports:/data/reports
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: vulnhunter
+      POSTGRES_USER: vulnhunter
+      POSTGRES_PASSWORD: vulnhunter
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U vulnhunter"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  redis:
+    image: redis:7-alpine
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  postgres_data:
