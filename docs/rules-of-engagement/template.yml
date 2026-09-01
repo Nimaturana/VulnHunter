@@ -1,0 +1,21 @@
+version: 1
+asset_id: "replace-with-verified-asset-id"
+authorization:
+  approved_by: "asset-owner"
+  approved_at: "YYYY-MM-DDTHH:MM:SSZ"
+scope:
+  allowed_hosts: []
+  allowed_ports: [80, 443]
+  allow_subdomains: false
+  allow_authenticated_testing: false
+window:
+  starts_at: "YYYY-MM-DDTHH:MM:SSZ"
+  ends_at: "YYYY-MM-DDTHH:MM:SSZ"
+safety:
+  profile: passive
+  destructive_payloads: false
+  max_requests_per_second: 2
+  max_urls: 100
+  max_duration_seconds: 300
+contacts:
+  emergency_stop: "security@example.com"
