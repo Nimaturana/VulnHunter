@@ -1,12 +1,10 @@
-# vulnhunter/database/create_tables.py
 from vulnhunter.database.connection import Base, engine
-
-# Importar los modelos para que SQLAlchemy los reconozca
 from vulnhunter.database.models import User, Website, Scan, Finding
 
-print("Creando tablas en la base de datos...")
+print("Borrando tablas existentes...")
+Base.metadata.drop_all(bind=engine)
 
-# Crea todas las tablas que heredan de Base
+print("Creando tablas con la estructura nueva...")
 Base.metadata.create_all(bind=engine)
 
-print("Tablas creadas correctamente.")
+print("Tablas recreadas correctamente.")

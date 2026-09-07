@@ -37,7 +37,8 @@ class Scan(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     scan_id = Column(String(100), unique=True, nullable=False)
-    website_id = Column(Integer, ForeignKey("websites.id"), nullable=False)
+    url = Column(String(500), nullable=False)
+    website_id = Column(Integer, ForeignKey("websites.id"), nullable=True)
     scan_types = Column(Text)
     status = Column(String(50), default="pending")
     started_at = Column(DateTime, default=datetime.utcnow)
@@ -58,8 +59,10 @@ class Finding(Base):
     type = Column(String(100), nullable=False)
     severity = Column(String(50), nullable=False)
     location = Column(String(500), nullable=True)
-    payload = Column(Text, nullable=True)
+    scanner = Column(String(100), nullable=True)
+    description = Column(Text, nullable=True)
+    recommendation = Column(Text, nullable=True)
     evidence = Column(Text, nullable=True)
-    details = Column(Text, nullable=True)
+    confidence = Column(String(50), nullable=True)
 
     scan = relationship("Scan", back_populates="findings")
