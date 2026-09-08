@@ -1,21 +1,35 @@
 # app/reports/pdf_generator.py
-from reportlab.lib.pagesizes import letter, A4
+from xml.sax.saxutils import escape
+
+from reportlab.lib.pagesizes import A4
 from reportlab.lib import colors
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.units import inch
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
-from reportlab.platypus import PageBreak, Image, KeepTogether
-from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_JUSTIFY, TA_RIGHT
+from reportlab.platypus import PageBreak, KeepTogether
+from reportlab.platypus.tableofcontents import TableOfContents
+from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_JUSTIFY
 from reportlab.graphics.shapes import Drawing, Rect, String
 from reportlab.graphics.charts.piecharts import Pie
-from reportlab.graphics.charts.barcharts import VerticalBarChart
-from reportlab.graphics import renderPDF
 from datetime import datetime
 import os
-import matplotlib.pyplot as plt
-import matplotlib.patches as mpatches
-from io import BytesIO
-import base64
+
+
+class VulnHunterDocTemplate(SimpleDocTemplate):
+    """Documento que registra automáticamente las secciones del índice."""
+
+    def afterFlowable(self, flowable):
+        if not isinstance(flowable, Paragraph) or flowable.style.name != 'SectionTitle':
+            return
+
+        title = flowable.getPlainText()
+        if title == 'TABLA DE CONTENIDOS':
+            return
+        bookmark = f'section-{self.page}-{abs(hash(title))}'
+        self.canv.bookmarkPage(bookmark)
+        self.canv.addOutlineEntry(title, bookmark, level=0, closed=False)
+        self.notify('TOCEntry', (0, title, self.page, bookmark))
+
 
 class VulnHunterReportGenerator:
     """Generador de reportes PDF profesionales para escaneos completos de seguridad web"""
@@ -39,6 +53,36 @@ class VulnHunterReportGenerator:
             textColor=colors.HexColor('#1f2937'),
             alignment=TA_CENTER,
             fontName='Helvetica-Bold'
+        ))
+
+        self.styles.add(ParagraphStyle(
+            name='CoverLabel',
+            parent=self.styles['Normal'],
+            fontName='Helvetica-Bold',
+            fontSize=10,
+            leading=13,
+            alignment=TA_CENTER,
+            textColor=colors.HexColor('#111827'),
+        ))
+        self.styles.add(ParagraphStyle(
+            name='CoverTarget',
+            parent=self.styles['Normal'],
+            fontName='Helvetica-Bold',
+            fontSize=14,
+            leading=18,
+            alignment=TA_CENTER,
+            textColor=colors.HexColor('#111827'),
+            splitLongWords=True,
+            wordWrap='CJK',
+        ))
+        self.styles.add(ParagraphStyle(
+            name='CenteredBody',
+            parent=self.styles['Normal'],
+            fontName='Helvetica',
+            fontSize=10,
+            leading=14,
+            alignment=TA_CENTER,
+            textColor=colors.HexColor('#1f2937'),
         ))
        
         # Subtítulo de sección
@@ -115,6 +159,160 @@ class VulnHunterReportGenerator:
             leading=11
         ))
 
+        # Celdas con ajuste de línea para evitar textos superpuestos.
+        self.styles.add(ParagraphStyle(
+            name='TableHeader',
+            parent=self.styles['Normal'],
+            fontName='Helvetica-Bold',
+            fontSize=8,
+            leading=10,
+            textColor=colors.white,
+            alignment=TA_CENTER,
+            splitLongWords=True,
+            wordWrap='CJK',
+        ))
+        self.styles.add(ParagraphStyle(
+            name='TableCell',
+            parent=self.styles['Normal'],
+            fontName='Helvetica',
+            fontSize=8,
+            leading=10,
+            textColor=colors.HexColor('#1f2937'),
+            alignment=TA_LEFT,
+            splitLongWords=True,
+            wordWrap='CJK',
+        ))
+        self.styles.add(ParagraphStyle(
+            name='TableCellCenter',
+            parent=self.styles['TableCell'],
+            alignment=TA_CENTER,
+        ))
+
+    def _table_paragraph(self, value, style='TableCell'):
+        """Convertir contenido de tabla en texto seguro y ajustable."""
+        if isinstance(value, Paragraph):
+            return value
+        text = escape(str(value)).replace('\n', '<br/>')
+        return Paragraph(text, self.styles[style])
+
+    def _build_table(
+        self,
+        data,
+        col_widths,
+        header_color='#1f2937',
+        row_colors=None,
+        centered_columns=(),
+        extra_style=None,
+    ):
+        """Crear una tabla consistente, legible y capaz de dividirse por páginas."""
+        formatted_rows = []
+        for row_index, row in enumerate(data):
+            formatted_row = []
+            for column_index, value in enumerate(row):
+                style = 'TableHeader' if row_index == 0 else (
+                    'TableCellCenter' if column_index in centered_columns else 'TableCell'
+                )
+                formatted_row.append(self._table_paragraph(value, style))
+            formatted_rows.append(formatted_row)
+
+        table = Table(
+            formatted_rows,
+            colWidths=col_widths,
+            repeatRows=1,
+            hAlign='LEFT',
+        )
+        commands = [
+            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor(header_color)),
+            ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+            ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#cbd5e1')),
+            ('BOX', (0, 0), (-1, -1), 0.8, colors.HexColor('#94a3b8')),
+            ('LEFTPADDING', (0, 0), (-1, -1), 7),
+            ('RIGHTPADDING', (0, 0), (-1, -1), 7),
+            ('TOPPADDING', (0, 0), (-1, -1), 7),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 7),
+        ]
+        if row_colors and len(data) > 1:
+            commands.append(('ROWBACKGROUNDS', (0, 1), (-1, -1), row_colors))
+        if extra_style:
+            commands.extend(extra_style)
+        table.setStyle(TableStyle(commands))
+        return table
+
+    def _create_risk_pie_chart(self, distribution):
+        """Crear gráfico de torta y leyenda con la paleta oficial de severidad."""
+        risk_palette = {
+            'CRITICAL': ('Crítico', colors.HexColor('#dc2626')),
+            'HIGH': ('Alto', colors.HexColor('#f97316')),
+            'MEDIUM': ('Medio', colors.HexColor('#eab308')),
+            'LOW': ('Bajo', colors.HexColor('#16a34a')),
+        }
+        populated = [
+            (level, distribution.get(level, 0))
+            for level in risk_palette
+            if distribution.get(level, 0) > 0
+        ]
+        if not populated:
+            return None
+
+        total = sum(count for _, count in populated)
+        drawing = Drawing(490, 170)
+        pie = Pie()
+        pie.x = 32
+        pie.y = 8
+        pie.width = 150
+        pie.height = 150
+        pie.data = [count for _, count in populated]
+        pie.labels = None
+        pie.slices.strokeColor = colors.white
+        pie.slices.strokeWidth = 1.5
+
+        for index, (level, _) in enumerate(populated):
+            pie.slices[index].fillColor = risk_palette[level][1]
+        drawing.add(pie)
+
+        legend_x = 225
+        legend_y = 125
+        drawing.add(String(
+            legend_x,
+            150,
+            'Distribución de hallazgos',
+            fontName='Helvetica-Bold',
+            fontSize=11,
+            fillColor=colors.HexColor('#1f2937'),
+        ))
+        for index, (level, count) in enumerate(populated):
+            label, color = risk_palette[level]
+            y = legend_y - (index * 27)
+            percentage = count / total * 100
+            drawing.add(Rect(legend_x, y, 15, 15, fillColor=color, strokeColor=color))
+            drawing.add(String(
+                legend_x + 24,
+                y + 3,
+                f'{label}: {count} ({percentage:.1f}%)',
+                fontName='Helvetica',
+                fontSize=9,
+                fillColor=colors.HexColor('#334155'),
+            ))
+        return drawing
+
+    @staticmethod
+    def _draw_page_footer(canvas, doc):
+        """Añadir identificación, confidencialidad y número a cada página."""
+        page_width, _ = A4
+        canvas.saveState()
+        canvas.setStrokeColor(colors.HexColor('#cbd5e1'))
+        canvas.setLineWidth(0.5)
+        canvas.line(doc.leftMargin, 36, page_width - doc.rightMargin, 36)
+        canvas.setFillColor(colors.HexColor('#64748b'))
+        canvas.setFont('Helvetica', 8)
+        canvas.drawString(doc.leftMargin, 23, 'VulnHunter · Reporte confidencial')
+        canvas.drawRightString(
+            page_width - doc.rightMargin,
+            23,
+            f'Página {canvas.getPageNumber()}',
+        )
+        canvas.restoreState()
+
     def _load_vulnerability_descriptions(self):
         """Cargar descripciones detalladas de vulnerabilidades por tipo"""
         return {
@@ -189,10 +387,10 @@ class VulnHunterReportGenerator:
         os.makedirs(os.path.dirname(output_path), exist_ok=True)
        
         # Crear documento con márgenes optimizados
-        doc = SimpleDocTemplate(output_path, pagesize=A4,
-                              rightMargin=45, leftMargin=45,
-                              topMargin=50, bottomMargin=50,
-                              title=f"Reporte VulnHunter - {scan_data.get('url', 'Unknown')}")
+        doc = VulnHunterDocTemplate(output_path, pagesize=A4,
+                                    rightMargin=45, leftMargin=45,
+                                    topMargin=50, bottomMargin=62,
+                                    title=f"Reporte VulnHunter - {scan_data.get('url', 'Unknown')}")
        
         # Construir contenido completo
         story = []
@@ -229,7 +427,11 @@ class VulnHunterReportGenerator:
         story.extend(self._create_comprehensive_technical_appendix(scan_data))
        
         # Generar PDF
-        doc.build(story)
+        doc.multiBuild(
+            story,
+            onFirstPage=self._draw_page_footer,
+            onLaterPages=self._draw_page_footer,
+        )
         return output_path
 
     def _create_professional_cover_page(self, scan_data):
@@ -245,17 +447,17 @@ class VulnHunterReportGenerator:
         fecha_escaneo = datetime.fromisoformat(scan_data['started_at'].replace('Z', '+00:00')).strftime('%d de %B de %Y')
         fecha_reporte = datetime.now().strftime('%d de %B de %Y a las %H:%M')
        
-        client_info = f"""
-        <para alignment="center">
-        <b>EVALUACIÓN DEL OBJETIVO</b><br/>
-        <font size="14"><b>{scan_data['url']}</b></font><br/><br/>
-        ID del Reporte: {scan_data['scan_id']}<br/>
-        Fecha de Evaluación: {fecha_escaneo}<br/>
-        Duración de la Evaluación: {scan_data.get('duration_seconds', 0)} segundos<br/>
-        Reporte Generado: {fecha_reporte}
-        </para>
-        """
-        story.append(Paragraph(client_info, self.styles['ProfessionalBody']))
+        story.append(Paragraph("EVALUACIÓN DEL OBJETIVO", self.styles['CoverLabel']))
+        story.append(Spacer(1, 3))
+        story.append(Paragraph(escape(str(scan_data['url'])), self.styles['CoverTarget']))
+        story.append(Spacer(1, 10))
+        client_info = (
+            f"ID del Reporte: {escape(str(scan_data['scan_id']))}<br/>"
+            f"Fecha de Evaluación: {fecha_escaneo}<br/>"
+            f"Duración de la Evaluación: {scan_data.get('duration_seconds', 0)} segundos<br/>"
+            f"Reporte Generado: {fecha_reporte}"
+        )
+        story.append(Paragraph(client_info, self.styles['CenteredBody']))
         story.append(Spacer(1, 25))
        
         # Nivel de riesgo con visualización
@@ -265,16 +467,24 @@ class VulnHunterReportGenerator:
        
         risk_info = self.risk_matrix.get(risk_level, {'color': colors.gray, 'sla': 'N/A', 'range': '0-100'})
        
-        risk_display = f"""
-        <para alignment="center">
-        <b>CALIFICACIÓN GENERAL DE SEGURIDAD</b><br/>
-        <font size="18" color="{risk_info['color'].hexval()}"><b>{risk_level}</b></font><br/>
-        Puntuación de Riesgo: {risk_score}/100 (Rango {risk_info['range']})<br/>
-        Vulnerabilidades Totales: {total_vulns}<br/>
-        Cronograma de Acción Recomendado: {risk_info['sla']}
-        </para>
-        """
-        story.append(Paragraph(risk_display, self.styles['ProfessionalBody']))
+        risk_level_style = ParagraphStyle(
+            'CoverRiskValue',
+            parent=self.styles['CenteredBody'],
+            fontName='Helvetica-Bold',
+            fontSize=18,
+            leading=22,
+            textColor=risk_info['color'],
+        )
+        story.append(Paragraph("CALIFICACIÓN GENERAL DE SEGURIDAD", self.styles['CoverLabel']))
+        story.append(Spacer(1, 2))
+        story.append(Paragraph(escape(str(risk_level)), risk_level_style))
+        story.append(Spacer(1, 3))
+        risk_details = (
+            f"Puntuación de Riesgo: {risk_score}/100 (Rango {risk_info['range']})<br/>"
+            f"Vulnerabilidades Totales: {total_vulns}<br/>"
+            f"Cronograma de Acción Recomendado: {risk_info['sla']}"
+        )
+        story.append(Paragraph(risk_details, self.styles['CenteredBody']))
         story.append(Spacer(1, 20))
        
         # Resumen de cobertura de testing
@@ -286,15 +496,14 @@ class VulnHunterReportGenerator:
         if 'Ssl Tls' in tipos_escaneo:
             tipos_escaneo[tipos_escaneo.index('Ssl Tls')] = 'SSL/TLS'
            
-        coverage_info = f"""
-        <para alignment="center">
-        <b>COBERTURA DE LA EVALUACIÓN</b><br/>
-        Pruebas de Seguridad Realizadas: {len(scan_data['scan_types'])}/5<br/>
-        Tipos de Pruebas: {', '.join(tipos_escaneo)}<br/>
-        Marco de Cumplimiento: OWASP Top 10 2025
-        </para>
-        """
-        story.append(Paragraph(coverage_info, self.styles['ProfessionalBody']))
+        story.append(Paragraph("COBERTURA DE LA EVALUACIÓN", self.styles['CoverLabel']))
+        story.append(Spacer(1, 3))
+        coverage_info = (
+            f"Pruebas de Seguridad Realizadas: {len(scan_data['scan_types'])}/5<br/>"
+            f"Tipos de Pruebas: {escape(', '.join(tipos_escaneo))}<br/>"
+            "Marco de Cumplimiento: OWASP Top 10 2025"
+        )
+        story.append(Paragraph(coverage_info, self.styles['CenteredBody']))
        
         return story
 
@@ -303,30 +512,30 @@ class VulnHunterReportGenerator:
         story = []
        
         story.append(Paragraph("TABLA DE CONTENIDOS", self.styles['SectionTitle']))
-       
-        toc_data = [
-            ['Sección', 'Página'],
-            ['1. Resumen Ejecutivo', '3'],
-            ['2. Análisis de Riesgo y Métricas', '4'],
-            ['3. Resultados del Análisis por Scanner', '5'],
-            ['4. Detalles de Vulnerabilidades', '6'],
-            ['5. Plan de Remedición', '7'],
-            ['6. Anexo Técnico', '8']
+
+        toc = TableOfContents()
+        toc.levelStyles = [
+            ParagraphStyle(
+                name='TOCSection',
+                parent=self.styles['Normal'],
+                fontName='Helvetica',
+                fontSize=10,
+                leading=19,
+                leftIndent=10,
+                rightIndent=10,
+                textColor=colors.HexColor('#1f2937'),
+            )
         ]
-       
-        toc_table = Table(toc_data, colWidths=[4.2*inch, 1.3*inch])
-        toc_table.setStyle(TableStyle([
-            ('BACKGROUND', (0, 0), (1, 0), colors.HexColor('#3b82f6')),
-            ('TEXTCOLOR', (0, 0), (1, 0), colors.white),
-            ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
-            ('FONTNAME', (0, 0), (1, 0), 'Helvetica-Bold'),
-            ('FONTSIZE', (0, 0), (-1, -1), 10),
-            ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('#f8fafc')]),
-            ('GRID', (0, 0), (-1, -1), 1, colors.HexColor('#e2e8f0')),
+        toc.dotsMinLevel = 0
+        toc.tableStyle = TableStyle([
             ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
-        ]))
-       
-        story.append(toc_table)
+            ('LEFTPADDING', (0, 0), (-1, -1), 8),
+            ('RIGHTPADDING', (0, 0), (-1, -1), 8),
+            ('TOPPADDING', (0, 0), (-1, -1), 5),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 5),
+            ('LINEBELOW', (0, 0), (-1, -1), 0.4, colors.HexColor('#dbeafe')),
+        ])
+        story.append(toc)
         return story
 
     def _create_enhanced_executive_summary(self, scan_data):
@@ -352,28 +561,64 @@ class VulnHunterReportGenerator:
             risk_distribution = self._calculate_risk_distribution(vulnerabilities)
            
             # Crear tabla de resumen optimizada
-            summary_data = [
-                ['Nivel de Riesgo', 'Cantidad', 'Porcentaje', 'Acción Requerida'],
-                ['Crítico', str(risk_distribution['CRITICAL']), f"{risk_distribution['CRITICAL']/len(vulnerabilities)*100:.1f}%", '24 horas'],
-                ['Alto', str(risk_distribution['HIGH']), f"{risk_distribution['HIGH']/len(vulnerabilities)*100:.1f}%", '72 horas'],
-                ['Medio', str(risk_distribution['MEDIUM']), f"{risk_distribution['MEDIUM']/len(vulnerabilities)*100:.1f}%", '1-2 semanas'],
-                ['Bajo', str(risk_distribution['LOW']), f"{risk_distribution['LOW']/len(vulnerabilities)*100:.1f}%", '1 mes']
-            ]
-           
-            summary_table = Table(summary_data, colWidths=[1.4*inch, 0.8*inch, 1.0*inch, 1.3*inch])
-            summary_table.setStyle(TableStyle([
-                ('BACKGROUND', (0, 0), (3, 0), colors.HexColor('#1f2937')),
-                ('TEXTCOLOR', (0, 0), (3, 0), colors.white),
-                ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
-                ('FONTNAME', (0, 0), (3, 0), 'Helvetica-Bold'),
-                ('FONTSIZE', (0, 0), (-1, -1), 9),
-                ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('#f8fafc')]),
-                ('GRID', (0, 0), (-1, -1), 1, colors.HexColor('#e2e8f0')),
-                ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
-            ]))
+            risk_row_colors = {
+                'CRITICAL': colors.HexColor('#fee2e2'),
+                'HIGH': colors.HexColor('#ffedd5'),
+                'MEDIUM': colors.HexColor('#fef3c7'),
+                'LOW': colors.HexColor('#dcfce7'),
+            }
+            risk_label_colors = {
+                'CRITICAL': colors.HexColor('#dc2626'),
+                'HIGH': colors.HexColor('#f97316'),
+                'MEDIUM': colors.HexColor('#eab308'),
+                'LOW': colors.HexColor('#16a34a'),
+            }
+            risk_levels = ['CRITICAL', 'HIGH', 'MEDIUM', 'LOW']
+            risk_labels = {
+                'CRITICAL': ('Crítico', '24 horas', '#ffffff'),
+                'HIGH': ('Alto', '72 horas', '#ffffff'),
+                'MEDIUM': ('Medio', '1-2 semanas', '#422006'),
+                'LOW': ('Bajo', '1 mes', '#ffffff'),
+            }
+            summary_data = [['Nivel de Riesgo', 'Cantidad', 'Porcentaje', 'Acción Requerida']]
+            for level in risk_levels:
+                label, action, text_color = risk_labels[level]
+                count = risk_distribution[level]
+                summary_data.append([
+                    Paragraph(
+                        f'<b><font color="{text_color}">{label}</font></b>',
+                        self.styles['TableCellCenter'],
+                    ),
+                    str(count),
+                    f'{count / len(vulnerabilities) * 100:.1f}%',
+                    action,
+                ])
+
+            summary_table = self._build_table(
+                summary_data,
+                col_widths=[1.55*inch, 1.0*inch, 1.15*inch, 2.2*inch],
+                header_color='#1f2937',
+                centered_columns=(0, 1, 2, 3),
+                extra_style=[
+                    *[
+                        ('BACKGROUND', (0, row), (-1, row), risk_row_colors[level])
+                        for row, level in enumerate(risk_levels, start=1)
+                    ],
+                    *[
+                        ('BACKGROUND', (0, row), (0, row), risk_label_colors[level])
+                        for row, level in enumerate(risk_levels, start=1)
+                    ],
+                ],
+            )
            
             story.append(Paragraph("Resumen de Distribución de Riesgos:", self.styles['SubSectionTitle']))
             story.append(summary_table)
+            story.append(Spacer(1, 12))
+
+            risk_chart = self._create_risk_pie_chart(risk_distribution)
+            if risk_chart:
+                story.append(Paragraph("Gráfico de Distribución de Riesgo:", self.styles['SubSectionTitle']))
+                story.append(risk_chart)
             story.append(Spacer(1, 15))
            
             # Hallazgos clave
@@ -421,17 +666,13 @@ class VulnHunterReportGenerator:
                 str(info['priority'])
             ])
        
-        owasp_table = Table(owasp_data, colWidths=[2.8*inch, 1.0*inch, 1.0*inch, 0.7*inch])
-        owasp_table.setStyle(TableStyle([
-            ('BACKGROUND', (0, 0), (3, 0), colors.HexColor('#dc2626')),
-            ('TEXTCOLOR', (0, 0), (3, 0), colors.white),
-            ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
-            ('FONTNAME', (0, 0), (3, 0), 'Helvetica-Bold'),
-            ('FONTSIZE', (0, 0), (-1, -1), 9),
-            ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('#fef2f2')]),
-            ('GRID', (0, 0), (-1, -1), 1, colors.HexColor('#e2e8f0')),
-            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
-        ]))
+        owasp_table = self._build_table(
+            owasp_data,
+            col_widths=[3.2*inch, 1.25*inch, 1.35*inch, 1.0*inch],
+            header_color='#dc2626',
+            row_colors=[colors.white, colors.HexColor('#fef2f2')],
+            centered_columns=(1, 2, 3),
+        )
        
         story.append(owasp_table)
         story.append(Spacer(1, 15))
@@ -450,17 +691,13 @@ class VulnHunterReportGenerator:
                 info['coverage']
             ])
        
-        scanner_table = Table(scanner_data, colWidths=[1.8*inch, 1.0*inch, 1.0*inch, 0.9*inch])
-        scanner_table.setStyle(TableStyle([
-            ('BACKGROUND', (0, 0), (3, 0), colors.HexColor('#3b82f6')),
-            ('TEXTCOLOR', (0, 0), (3, 0), colors.white),
-            ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
-            ('FONTNAME', (0, 0), (3, 0), 'Helvetica-Bold'),
-            ('FONTSIZE', (0, 0), (-1, -1), 9),
-            ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('#eff6ff')]),
-            ('GRID', (0, 0), (-1, -1), 1, colors.HexColor('#e2e8f0')),
-            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
-        ]))
+        scanner_table = self._build_table(
+            scanner_data,
+            col_widths=[2.45*inch, 1.45*inch, 1.55*inch, 1.3*inch],
+            header_color='#2563eb',
+            row_colors=[colors.white, colors.HexColor('#eff6ff')],
+            centered_columns=(1, 2, 3),
+        )
        
         story.append(scanner_table)
        
@@ -569,17 +806,12 @@ class VulnHunterReportGenerator:
                 evidence_text = evidence_text[:80] + '...'
             vuln_data.append(['Evidencia', evidence_text])
        
-        vuln_table = Table(vuln_data, colWidths=[1.8*inch, 3.7*inch])
-        vuln_table.setStyle(TableStyle([
-            ('BACKGROUND', (0, 0), (1, 0), colors.HexColor('#1f2937')),
-            ('TEXTCOLOR', (0, 0), (1, 0), colors.white),
-            ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
-            ('FONTNAME', (0, 0), (1, 0), 'Helvetica-Bold'),
-            ('FONTSIZE', (0, 0), (-1, -1), 9),
-            ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('#f8fafc')]),
-            ('GRID', (0, 0), (-1, -1), 1, colors.HexColor('#e2e8f0')),
-            ('VALIGN', (0, 0), (-1, -1), 'TOP'),
-        ]))
+        vuln_table = self._build_table(
+            vuln_data,
+            col_widths=[1.8*inch, 5.0*inch],
+            header_color='#1f2937',
+            row_colors=[colors.white, colors.HexColor('#f8fafc')],
+        )
        
         # Descripción técnica
         description_text = f"""
@@ -623,17 +855,13 @@ class VulnHunterReportGenerator:
                     effort
                 ])
            
-            immediate_table = Table(immediate_data, colWidths=[0.5*inch, 2.2*inch, 2.3*inch, 0.9*inch])
-            immediate_table.setStyle(TableStyle([
-                ('BACKGROUND', (0, 0), (3, 0), colors.HexColor('#dc2626')),
-                ('TEXTCOLOR', (0, 0), (3, 0), colors.white),
-                ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
-                ('FONTNAME', (0, 0), (3, 0), 'Helvetica-Bold'),
-                ('FONTSIZE', (0, 0), (-1, -1), 8),
-                ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('#fef2f2')]),
-                ('GRID', (0, 0), (-1, -1), 1, colors.HexColor('#e2e8f0')),
-                ('VALIGN', (0, 0), (-1, -1), 'TOP'),
-            ]))
+            immediate_table = self._build_table(
+                immediate_data,
+                col_widths=[0.65*inch, 1.9*inch, 3.15*inch, 1.1*inch],
+                header_color='#dc2626',
+                row_colors=[colors.white, colors.HexColor('#fef2f2')],
+                centered_columns=(0, 3),
+            )
            
             story.append(immediate_table)
             story.append(Spacer(1, 15))
@@ -654,17 +882,13 @@ class VulnHunterReportGenerator:
                     resources
                 ])
            
-            short_term_table = Table(short_term_data, colWidths=[0.5*inch, 1.8*inch, 2.4*inch, 1.2*inch])
-            short_term_table.setStyle(TableStyle([
-                ('BACKGROUND', (0, 0), (3, 0), colors.HexColor('#ea580c')),
-                ('TEXTCOLOR', (0, 0), (3, 0), colors.white),
-                ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
-                ('FONTNAME', (0, 0), (3, 0), 'Helvetica-Bold'),
-                ('FONTSIZE', (0, 0), (-1, -1), 8),
-                ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('#fff7ed')]),
-                ('GRID', (0, 0), (-1, -1), 1, colors.HexColor('#e2e8f0')),
-                ('VALIGN', (0, 0), (-1, -1), 'TOP'),
-            ]))
+            short_term_table = self._build_table(
+                short_term_data,
+                col_widths=[0.65*inch, 1.8*inch, 3.05*inch, 1.3*inch],
+                header_color='#f97316',
+                row_colors=[colors.white, colors.HexColor('#fff7ed')],
+                centered_columns=(0, 3),
+            )
            
             story.append(short_term_table)
             story.append(Spacer(1, 15))
@@ -695,17 +919,13 @@ class VulnHunterReportGenerator:
             ['Continuo', 'Monitoreo de seguridad', 'Protección continua', 'Evaluaciones regulares']
         ]
        
-        timeline_table = Table(timeline_data, colWidths=[1.1*inch, 1.6*inch, 1.6*inch, 1.6*inch])
-        timeline_table.setStyle(TableStyle([
-            ('BACKGROUND', (0, 0), (3, 0), colors.HexColor('#1f2937')),
-            ('TEXTCOLOR', (0, 0), (3, 0), colors.white),
-            ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
-            ('FONTNAME', (0, 0), (3, 0), 'Helvetica-Bold'),
-            ('FONTSIZE', (0, 0), (-1, -1), 8),
-            ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('#f8fafc')]),
-            ('GRID', (0, 0), (-1, -1), 1, colors.HexColor('#e2e8f0')),
-            ('VALIGN', (0, 0), (-1, -1), 'TOP'),
-        ]))
+        timeline_table = self._build_table(
+            timeline_data,
+            col_widths=[1.05*inch, 1.85*inch, 2.0*inch, 1.9*inch],
+            header_color='#1f2937',
+            row_colors=[colors.white, colors.HexColor('#f8fafc')],
+            centered_columns=(0,),
+        )
        
         story.append(timeline_table)
        
