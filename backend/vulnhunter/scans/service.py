@@ -15,6 +15,9 @@ from vulnhunter.scanners.ssl_scanner import SSLScanner
 from vulnhunter.scanners.xss_scanner import XSSScanner
 from vulnhunter.scans.models import Finding, Scan, ScanRequest, ScanSummary
 from vulnhunter.scans.risk import calculate_risk
+from vulnhunter.database.connection import SessionLocal
+from vulnhunter.database import crud
+
 
 
 SCANNER_FACTORIES = {
@@ -66,7 +69,7 @@ class ScanService:
     @property
     def active_scan_count(self) -> int:
         return sum(scan.status == "running" for scan in self._scans.values())
-
+    
     def create_scan(self, request: ScanRequest) -> Scan:
         invalid = sorted(set(request.scan_types) - set(SCANNER_FACTORIES))
         if invalid:
@@ -81,7 +84,22 @@ class ScanService:
             started_at=datetime.now(timezone.utc),
         )
         self._scans[scan.scan_id] = scan
+
+        # Guardar el escaneo en la base de datos (estado inicial)-CR
+        db = SessionLocal()
+        try:
+            crud.crear_scan(
+                db,
+                scan_id=scan.scan_id,
+                url=scan.url,
+                scan_types=scan.scan_types,
+            )
+        except Exception:
+            logger.exception("No se pudo guardar el escaneo en la base de datos")
+        finally:
+            db.close()
         return scan
+
 
     async def perform_scan(self, scan_id: str) -> None:
         scan = self._scans[scan_id]
@@ -161,6 +179,25 @@ class ScanService:
         scan.status = "partial" if scan.errors else "completed"
         scan.current_scanner = None
         scan.progress_percentage = 100
+        
+        # Guardar los resultados finales en la base de datos-CR
+        db = SessionLocal()
+        try:
+            scan_db = crud.finalizar_scan(
+                db,
+                scan_id=scan.scan_id,
+                status=scan.status,
+                total_vulnerabilities=len(scan.findings),
+                risk_score=scan.risk_score,
+                risk_level=scan.risk_level,
+            )
+            if scan_db is not None:
+                crud.guardar_findings(db, scan_db.id, scan.findings)
+        except Exception:
+            logger.exception("No se pudieron guardar los resultados en la base de datos")
+        finally:
+            db.close()
+
 
         severity_counts = {
             severity: sum(finding.severity == severity for finding in scan.findings)
