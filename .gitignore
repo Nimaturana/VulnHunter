@@ -15,7 +15,3 @@ frontend/dist/
 artifacts/reports/*.pdf
 !artifacts/reports/.gitkeep
 artifacts/cache/
-
-# Local academic evidence may contain personal information.
-Fase 1/Evidencia Grupal/
-Fase 1/Evidencia Individual/
