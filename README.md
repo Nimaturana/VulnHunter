@@ -6,9 +6,9 @@ reportes. El repositorio está organizado como un **monolito modular por
 funcionalidades (Package by Feature)**.
 
 > Estado actual: primer MVP. Los scanners, la API y los reportes funcionan en
-> memoria. Autenticación, PostgreSQL, Celery y el frontend se incorporarán cuando
-> exista una primera necesidad funcional. No publiques la API ni escanees terceros
-> sin permiso.
+> memoria, con persistencia inicial de escaneos en PostgreSQL cuando la base de
+> datos está disponible. Autenticación, Celery y el frontend se incorporarán en
+> fases posteriores. No publiques la API ni escanees terceros sin permiso.
 
 ## Estructura
 
@@ -34,21 +34,36 @@ uvicorn vulnhunter.main:app --reload
 
 La documentación local queda en `http://localhost:8000/docs`.
 
+## Pruebas
+
+Instala las herramientas de desarrollo una vez desde `backend`:
+
+```powershell
+python -m pip install -e ".[dev]"
+```
+
+Después ejecuta las pruebas desde la raíz del repositorio:
+
+```powershell
+.\backend\.venv\Scripts\python.exe -m pytest -q
+```
+
 ## Docker Compose
 
 ```powershell
 docker compose -f infra/compose/docker-compose.yml up --build
 ```
 
-PostgreSQL y Redis se levantan como infraestructura preparada, pero el
-prototipo todavía conserva los escaneos en memoria y usa tareas de FastAPI.
+PostgreSQL recibe una copia de los escaneos y Redis queda preparado para la
+fase de colas. El prototipo todavía conserva los escaneos en memoria y usa
+tareas de FastAPI como mecanismo principal.
 
 ## Próximas fases obligatorias
 
 1. Autenticación, organizaciones y roles.
 2. Registro y verificación de propiedad de activos.
 3. política anti-SSRF aplicada a cada petición y redirección.
-4. Persistencia PostgreSQL y migraciones Alembic.
+4. Completar persistencia PostgreSQL y migraciones Alembic.
 5. Celery/Redis y workers aislados.
 6. Scanners pasivos y activos con contratos y pruebas de laboratorio.
 7. Frontend, alertas, historial y observabilidad.

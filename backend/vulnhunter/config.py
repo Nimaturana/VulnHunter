@@ -3,8 +3,9 @@ from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
 
-
-REPOSITORY_ROOT = Path(__file__).resolve().parents[3]
+# config.py lives in <repository>/backend/vulnhunter/. Going up two levels
+# therefore resolves to the repository itself, not to its parent directory.
+REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 
 
 def _csv_setting(name: str, default: str) -> tuple[str, ...]:
