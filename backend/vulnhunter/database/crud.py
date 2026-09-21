@@ -74,3 +74,7 @@ def listar_scans(db: Session, limit: int = 50, offset: int = 0) -> list[Scan]:
 def listar_todos_scans(db: Session) -> list[Scan]:
     """Devuelve todos los escaneos (útil para /stats)."""
     return db.query(Scan).all()
+
+def obtener_findings(db: Session, scan_db_id: int) -> list[Finding]:
+    """Devuelve los hallazgos de un escaneo por su id interno."""
+    return db.query(Finding).filter(Finding.scan_id == scan_db_id).all()

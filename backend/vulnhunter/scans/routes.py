@@ -41,7 +41,7 @@ async def get_scan(scan_id: str) -> dict:
     scan = scan_service.get_scan(scan_id)
     if scan is None:
         raise HTTPException(status_code=404, detail="Escaneo no encontrado")
-    return scan_service.serialize(scan)
+    return scan 
 
 
 @router.get("/scan/{scan_id}/pdf", include_in_schema=False)

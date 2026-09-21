@@ -1,4 +1,5 @@
 import asyncio
+import json 
 import logging
 import time
 import uuid
@@ -223,25 +224,83 @@ class ScanService:
             "╚══════════════════════════════════════════════════════════════════════╝",
         )
 
-    def get_scan(self, scan_id: str) -> Scan | None:
-        return self._scans.get(scan_id)
+    def get_scan(self, scan_id: str) -> dict[str, Any] | None:
+        # Abrimos una conexion a la base de datos
+        db = SessionLocal()
+        try:
+            # Buscamos el escaneo por su UUID (scan_id). Si no existe, devuelve None
+            scan = crud.obtener_scan(db, scan_id)
+            if scan is None:
+                return None
 
+            # Traemos los hallazgos (vulnerabilidades) asociados a ese escaneo.
+            # Ojo: usamos scan.id (el id interno numerico), no el UUID.
+            findings_db = crud.obtener_findings(db, scan.id)
+
+            # Convertimos cada hallazgo de la base a un diccionario para el JSON de respuesta
+            vulnerabilities = [
+                {
+                    "type": f.type,
+                    "severity": f.severity,
+                    "location": f.location,
+                    "scanner": f.scanner,
+                    "description": f.description,
+                    "recommendation": f.recommendation,
+                    "evidence": f.evidence,
+                    "confidence": f.confidence,
+                }
+                for f in findings_db
+            ]
+
+            # En la base, scan_types se guarda como texto JSON, asi que lo reconvertimos a lista.
+            # Si viene vacio o mal formado, dejamos una lista vacia para no romper.
+            try:
+                scan_types = json.loads(scan.scan_types) if scan.scan_types else []
+            except (ValueError, TypeError):
+                scan_types = []
+
+            # Armamos el diccionario final que se devuelve como respuesta del endpoint.
+            # Usamos "or 0" y "or LOW" por si algun campo todavia esta vacio (escaneo pendiente).
+            return {
+                "scan_id": scan.scan_id,
+                "url": scan.url,
+                "status": scan.status,
+                "scan_types": scan_types,
+                "started_at": scan.started_at.isoformat() if scan.started_at else None,
+                "completed_at": scan.completed_at.isoformat() if scan.completed_at else None,
+                "total_vulnerabilities": scan.total_vulnerabilities or 0,
+                "risk_score": scan.risk_score or 0,
+                "risk_level": scan.risk_level or "LOW",
+                "vulnerabilities": vulnerabilities,
+            }
+        finally:
+            # Pase lo que pase, cerramos la conexion a la base de datos
+            db.close()
+
+    
     def list_scans(self, limit: int, offset: int, status: str | None) -> list[ScanSummary]:
-        scans = list(self._scans.values())
-        if status:
-            scans = [scan for scan in scans if scan.status == status]
-        scans.sort(key=lambda item: item.started_at, reverse=True)
-        return [
-            ScanSummary(
-                scan_id=scan.scan_id,
-                url=scan.url,
-                status=scan.status,
-                total_vulnerabilities=len(scan.findings),
-                risk_level=scan.risk_level,
-                completed_at=scan.completed_at,
-            )
-            for scan in scans[offset : offset + limit]
-        ]
+        db = SessionLocal()
+        try:
+            scans_db = crud.listar_scans(db, limit=limit, offset=offset)
+            resultado = []
+            for scan in scans_db:
+                if status and scan.status != status:
+                    continue
+                resultado.append(
+                    ScanSummary(
+                        scan_id=scan.scan_id,
+                        url=scan.url,
+                        status=scan.status,
+                        total_vulnerabilities=scan.total_vulnerabilities or 0,
+                        risk_level=scan.risk_level or "LOW",
+                        completed_at=scan.completed_at,
+                    )
+                )
+            return resultado
+        finally:
+            db.close()
+
+    
 
     def serialize(self, scan: Scan) -> dict[str, Any]:
         data = scan.model_dump(mode="json")
@@ -255,18 +314,32 @@ class ScanService:
             "current_scanner": scan.current_scanner,
         }
         return data
-
+    
     def statistics(self) -> dict[str, Any]:
-        scans = list(self._scans.values())
-        return {
-            "total_scans": len(scans),
-            "by_status": {
-                status: sum(scan.status == status for scan in scans)
-                for status in ("pending", "running", "completed", "partial", "failed")
-            },
-            "total_vulnerabilities": sum(len(scan.findings) for scan in scans),
-            "storage": "memory",
-        }
+        # Abrimos conexion a la base de datos
+        db = SessionLocal()
+        try:
+            # Traemos todos los escaneos guardados
+            scans = crud.listar_todos_scans(db)
+            return {
+                # Cantidad total de escaneos en la base
+                "total_scans": len(scans),
+                # Contamos cuantos hay en cada estado posible
+                "by_status": {
+                    status: sum(scan.status == status for scan in scans)
+                    for status in ("pending", "running", "completed", "partial", "failed")
+                },
+                # Sumamos el total de vulnerabilidades de todos los escaneos.
+                # Usamos "or 0" por si algun escaneo aun no tiene el conteo.
+                "total_vulnerabilities": sum(
+                    (scan.total_vulnerabilities or 0) for scan in scans
+                ),
+                # Dejamos claro que ahora los datos vienen de la base, no de memoria
+                "storage": "database",
+            }
+        finally:
+            db.close()
+
 
     def generate_report(self, scan: Scan) -> Path:
         settings = get_settings()
