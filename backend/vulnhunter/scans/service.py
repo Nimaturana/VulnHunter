@@ -61,7 +61,11 @@ class ScanService:
     """Coordinates scans. In-memory storage is intentionally isolated for later replacement."""
 
     def __init__(self) -> None:
+        # Buffer temporal en memoria: solo mantiene el estado de un escaneo
+        # MIENTRAS se ejecuta (progreso en tiempo real). La fuente oficial de
+        # datos es PostgreSQL; toda lectura para el usuario viene de la base.
         self._scans: dict[str, Scan] = {}
+
 
     @property
     def available_scanners(self) -> list[str]:
