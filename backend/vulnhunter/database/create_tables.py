@@ -1,10 +1,6 @@
-from vulnhunter.database.connection import Base, engine
-from vulnhunter.database.models import User, Website, Scan, Finding
+"""Compatibility command for creating the current database schema safely."""
 
-print("Borrando tablas existentes...")
-Base.metadata.drop_all(bind=engine)
+from vulnhunter.database.init_db import main
 
-print("Creando tablas con la estructura nueva...")
-Base.metadata.create_all(bind=engine)
-
-print("Tablas recreadas correctamente.")
+if __name__ == "__main__":
+    main()

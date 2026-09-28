@@ -51,12 +51,16 @@ Después ejecuta las pruebas desde la raíz del repositorio:
 ## Docker Compose
 
 ```powershell
-docker compose -f infra/compose/docker-compose.yml up --build
+Copy-Item .env.docker.example .env.docker
+docker compose --env-file .env.docker -f infra/compose/docker-compose.yml up --build -d
 ```
 
 PostgreSQL recibe una copia de los escaneos y Redis queda preparado para la
 fase de colas. El prototipo todavía conserva los escaneos en memoria y usa
 tareas de FastAPI como mecanismo principal.
+
+La guía completa de instalación, operación y solución de problemas está en
+[`docs/deployment/docker.md`](docs/deployment/docker.md).
 
 ## Próximas fases obligatorias
 

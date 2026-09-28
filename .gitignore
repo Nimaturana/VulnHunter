@@ -1,6 +1,7 @@
 .env
 .env.*
 !.env.example
+!.env.docker.example
 *.log
 *.py[cod]
 *.egg-info/

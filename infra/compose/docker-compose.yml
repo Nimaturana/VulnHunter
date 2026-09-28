@@ -1,18 +1,28 @@
+name: vulnhunter
+
 services:
   api:
+    image: vulnhunter-api:local
     build:
       context: ../..
       dockerfile: infra/docker/backend.Dockerfile
-    command: uvicorn vulnhunter.main:app --host 0.0.0.0 --port 8000
     environment:
       ENVIRONMENT: development
-      DATABASE_URL: postgresql://vulnhunter:vulnhunter@postgres:5432/vulnhunter
+      DOCS_ENABLED: ${DOCS_ENABLED:-true}
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000,http://localhost:5173}
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: ${POSTGRES_DB:-vulnhunter}
+      DB_USER: ${POSTGRES_USER:-vulnhunter}
+      DB_PASSWORD: ${POSTGRES_PASSWORD:?Define POSTGRES_PASSWORD in .env.docker}
       REDIS_URL: redis://redis:6379/0
       REPORT_DIR: /data/reports
     ports:
-      - "8000:8000"
+      - "${API_PORT:-8000}:8000"
     volumes:
       - ../../artifacts/reports:/data/reports
+    init: true
+    restart: unless-stopped
     depends_on:
       postgres:
         condition: service_healthy
@@ -22,24 +32,32 @@ services:
   postgres:
     image: postgres:16-alpine
     environment:
-      POSTGRES_DB: vulnhunter
-      POSTGRES_USER: vulnhunter
-      POSTGRES_PASSWORD: vulnhunter
+      POSTGRES_DB: ${POSTGRES_DB:-vulnhunter}
+      POSTGRES_USER: ${POSTGRES_USER:-vulnhunter}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Define POSTGRES_PASSWORD in .env.docker}
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U vulnhunter"]
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
       interval: 5s
       timeout: 5s
       retries: 10
+      start_period: 10s
     volumes:
       - postgres_data:/var/lib/postgresql/data
+    restart: unless-stopped
 
   redis:
     image: redis:7-alpine
+    command: redis-server --appendonly yes
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
       timeout: 5s
       retries: 10
+      start_period: 5s
+    volumes:
+      - redis_data:/data
+    restart: unless-stopped
 
 volumes:
   postgres_data:
+  redis_data:
