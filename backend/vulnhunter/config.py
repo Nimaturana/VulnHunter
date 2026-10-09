@@ -28,6 +28,13 @@ class Settings:
     report_dir: Path = Path(
         os.getenv("REPORT_DIR", str(REPOSITORY_ROOT / "artifacts" / "reports"))
     )
+    task_queue_enabled: bool = os.getenv("TASK_QUEUE_ENABLED", "false").lower() == "true"
+    celery_broker_url: str = os.getenv(
+        "CELERY_BROKER_URL", os.getenv("REDIS_URL", "redis://localhost:6379/0")
+    )
+    celery_result_backend: str = os.getenv(
+        "CELERY_RESULT_BACKEND", os.getenv("REDIS_URL", "redis://localhost:6379/1")
+    )
 
 
 @lru_cache

@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 
 from sqlalchemy.orm import Session
 
-from vulnhunter.database.models import Finding, Scan
+from vulnhunter.database.models import Finding, Report, Scan
 
 
 def crear_scan(
@@ -83,6 +83,49 @@ def finalizar_scan(
     return scan
 
 
+def registrar_tarea(
+    db: Session,
+    scan_id: str,
+    *,
+    task_id: str | None,
+    execution_mode: str,
+) -> Scan | None:
+    """Associate a scan with its execution mechanism and Celery task."""
+    scan = obtener_scan(db, scan_id)
+    if scan is None:
+        return None
+    scan.task_id = task_id
+    scan.execution_mode = execution_mode
+    scan.queued_at = datetime.now(timezone.utc)
+    db.commit()
+    db.refresh(scan)
+    return scan
+
+
+def marcar_inicio_worker(db: Session, scan_id: str) -> Scan | None:
+    scan = obtener_scan(db, scan_id)
+    if scan is None:
+        return None
+    scan.worker_started_at = datetime.now(timezone.utc)
+    scan.status = "running"
+    db.commit()
+    db.refresh(scan)
+    return scan
+
+
+def marcar_scan_fallido(db: Session, scan_id: str, error_message: str) -> Scan | None:
+    scan = obtener_scan(db, scan_id)
+    if scan is None:
+        return None
+    scan.status = "failed"
+    scan.completed_at = datetime.now(timezone.utc)
+    scan.current_scanner = None
+    scan.errors = json.dumps({"task": error_message})
+    db.commit()
+    db.refresh(scan)
+    return scan
+
+
 def guardar_findings(db: Session, scan_db_id: int, findings: list) -> None:
     """Inserta cada hallazgo del escaneo en la tabla findings."""
     for f in findings:
@@ -99,6 +142,56 @@ def guardar_findings(db: Session, scan_db_id: int, findings: list) -> None:
         )
         db.add(registro)
     db.commit()
+
+
+def guardar_estado_reporte(
+    db: Session,
+    scan_id: str,
+    *,
+    status: str,
+    file_name: str | None = None,
+    storage_path: str | None = None,
+    size_bytes: int | None = None,
+    sha256: str | None = None,
+    error_message: str | None = None,
+) -> Report | None:
+    scan = obtener_scan(db, scan_id)
+    if scan is None:
+        return None
+    report = db.query(Report).filter(Report.scan_id == scan.id).first()
+    if report is None:
+        report = Report(scan_id=scan.id)
+        db.add(report)
+    report.status = status
+    report.file_name = file_name
+    report.storage_path = storage_path
+    report.size_bytes = size_bytes
+    report.sha256 = sha256
+    report.error_message = error_message
+    report.generated_at = datetime.now(timezone.utc) if status == "generated" else None
+    db.commit()
+    db.refresh(report)
+    return report
+
+
+def obtener_reporte(db: Session, scan_id: str) -> Report | None:
+    return (
+        db.query(Report)
+        .join(Scan, Report.scan_id == Scan.id)
+        .filter(Scan.scan_id == scan_id)
+        .first()
+    )
+
+
+def registrar_descarga_reporte(db: Session, scan_id: str) -> Report | None:
+    report = obtener_reporte(db, scan_id)
+    if report is None:
+        return None
+    report.download_count += 1
+    report.last_downloaded_at = datetime.now(timezone.utc)
+    db.commit()
+    db.refresh(report)
+    return report
 
 
 def obtener_scan(db: Session, scan_id: str) -> Scan | None:
@@ -122,3 +215,7 @@ def listar_scans(
 def listar_todos_scans(db: Session) -> list[Scan]:
     """Devuelve todos los escaneos (útil para /stats)."""
     return db.query(Scan).all()
+
+
+def contar_scans_en_ejecucion(db: Session) -> int:
+    return db.query(Scan).filter(Scan.status == "running").count()

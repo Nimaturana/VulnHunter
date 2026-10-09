@@ -1,4 +1,5 @@
 import asyncio
+import hashlib
 import json
 import logging
 import time
@@ -67,7 +68,13 @@ class ScanService:
 
     @property
     def active_scan_count(self) -> int:
-        return sum(scan.status == "running" for scan in self._scans.values())
+        db = SessionLocal()
+        try:
+            return crud.contar_scans_en_ejecucion(db)
+        except Exception:
+            return sum(scan.status == "running" for scan in self._scans.values())
+        finally:
+            db.close()
     
     def create_scan(self, request: ScanRequest) -> Scan:
         invalid = sorted(set(request.scan_types) - set(SCANNER_FACTORIES))
@@ -102,12 +109,21 @@ class ScanService:
 
 
     async def perform_scan(self, scan_id: str) -> None:
-        scan = self._scans[scan_id]
+        scan = self.get_scan(scan_id)
+        if scan is None:
+            raise ValueError(f"Escaneo no encontrado: {scan_id}")
+        self._scans[scan_id] = scan
         scan.status = "running"
+        scan.worker_started_at = datetime.now(timezone.utc)
         total_scanners = len(scan.scan_types)
         total_started = time.perf_counter()
         scan_tag = f"SCAN {scan.scan_id[:8]}"
 
+        db = SessionLocal()
+        try:
+            crud.marcar_inicio_worker(db, scan.scan_id)
+        finally:
+            db.close()
         self._persist_progress(scan)
 
         _console_block(
@@ -228,6 +244,51 @@ class ScanService:
             "╚══════════════════════════════════════════════════════════════════════╝",
         )
 
+    async def perform_scan_and_generate(self, scan_id: str) -> Path | None:
+        """Run every scanner and persist the automatically generated report."""
+        self._persist_report(scan_id, status="generating")
+        try:
+            await self.perform_scan(scan_id)
+            completed_scan = self.get_scan(scan_id)
+            if completed_scan is None or completed_scan.status not in {"completed", "partial"}:
+                return None
+            return self.generate_report(completed_scan)
+        except Exception as exc:
+            self._persist_report(scan_id, status="failed", error_message=str(exc))
+            raise
+
+    def register_task(self, scan_id: str, task_id: str | None, execution_mode: str) -> None:
+        in_memory = self._scans.get(scan_id)
+        if in_memory is not None:
+            in_memory.task_id = task_id
+            in_memory.execution_mode = execution_mode
+            in_memory.queued_at = datetime.now(timezone.utc)
+
+        db = SessionLocal()
+        try:
+            crud.registrar_tarea(
+                db,
+                scan_id,
+                task_id=task_id,
+                execution_mode=execution_mode,
+            )
+        finally:
+            db.close()
+
+    def mark_failed(self, scan_id: str, error_message: str) -> None:
+        in_memory = self._scans.get(scan_id)
+        if in_memory is not None:
+            in_memory.status = "failed"
+            in_memory.completed_at = datetime.now(timezone.utc)
+            in_memory.errors = {"task": error_message}
+            in_memory.current_scanner = None
+
+        db = SessionLocal()
+        try:
+            crud.marcar_scan_fallido(db, scan_id, error_message)
+        finally:
+            db.close()
+
     @staticmethod
     def _persist_progress(scan: Scan) -> None:
         """Best-effort persistence; a temporary DB failure must not abort a scan."""
@@ -248,19 +309,19 @@ class ScanService:
             db.close()
 
     def get_scan(self, scan_id: str) -> Scan | None:
-        in_memory = self._scans.get(scan_id)
-        if in_memory is not None:
-            return in_memory
-
         db = SessionLocal()
         try:
             stored = crud.obtener_scan(db, scan_id)
-            return self._scan_from_database(stored) if stored is not None else None
+            if stored is not None:
+                return self._scan_from_database(stored)
         except Exception:
-            logger.warning("No se pudo consultar el escaneo en PostgreSQL", exc_info=True)
-            return None
+            logger.warning(
+                "No se pudo consultar el escaneo en PostgreSQL; se usará la memoria",
+                exc_info=True,
+            )
         finally:
             db.close()
+        return self._scans.get(scan_id)
 
     def list_scans(self, limit: int, offset: int, status: str | None) -> list[ScanSummary]:
         db = SessionLocal()
@@ -291,9 +352,14 @@ class ScanService:
         data["vulnerabilities"] = data.pop("findings")
         data["total_vulnerabilities"] = len(scan.findings)
         total = max(len(scan.scan_types), 1)
+        completed_scanners = (
+            total
+            if scan.status in {"completed", "partial"}
+            else min(round(total * scan.progress_percentage / 100), total)
+        )
         data["progress"] = {
             "percentage": scan.progress_percentage,
-            "completed_scanners": len(scan.results),
+            "completed_scanners": completed_scanners,
             "total_scanners": total,
             "current_scanner": scan.current_scanner,
         }
@@ -336,6 +402,10 @@ class ScanService:
             completed_at=scan.completed_at,
             progress_percentage=scan.progress_percentage,
             current_scanner=scan.current_scanner,
+            task_id=scan.task_id,
+            execution_mode=scan.execution_mode,
+            queued_at=scan.queued_at,
+            report_status=scan.report_status,
         )
 
     @staticmethod
@@ -355,6 +425,10 @@ class ScanService:
             completed_at=scan.completed_at,
             progress_percentage=progress,
             current_scanner=scan.current_scanner,
+            task_id=getattr(scan, "task_id", None),
+            execution_mode=getattr(scan, "execution_mode", "background"),
+            queued_at=getattr(scan, "queued_at", None),
+            report_status=(scan.report.status if getattr(scan, "report", None) else "not_generated"),
         )
 
     @staticmethod
@@ -398,6 +472,13 @@ class ScanService:
             errors=parse_json(stored.errors, {}),
             current_scanner=stored.current_scanner,
             progress_percentage=progress,
+            task_id=getattr(stored, "task_id", None),
+            execution_mode=getattr(stored, "execution_mode", "background"),
+            queued_at=getattr(stored, "queued_at", None),
+            worker_started_at=getattr(stored, "worker_started_at", None),
+            report_status=(
+                stored.report.status if getattr(stored, "report", None) else "not_generated"
+            ),
         )
 
     def generate_report(self, scan: Scan) -> Path:
@@ -408,7 +489,77 @@ class ScanService:
         data["duration_seconds"] = int(
             ((scan.completed_at or datetime.now(timezone.utc)) - scan.started_at).total_seconds()
         )
-        return Path(VulnHunterReportGenerator().generate_report(data, str(output)))
+        self._persist_report(scan.scan_id, status="generating")
+        try:
+            generated = Path(VulnHunterReportGenerator().generate_report(data, str(output)))
+            digest = hashlib.sha256(generated.read_bytes()).hexdigest()
+            self._persist_report(
+                scan.scan_id,
+                status="generated",
+                file_name=generated.name,
+                storage_path=str(generated),
+                size_bytes=generated.stat().st_size,
+                sha256=digest,
+            )
+            return generated
+        except Exception as exc:
+            self._persist_report(
+                scan.scan_id,
+                status="failed",
+                error_message=str(exc),
+            )
+            raise
+
+    @staticmethod
+    def _persist_report(scan_id: str, **values: Any) -> None:
+        db = SessionLocal()
+        try:
+            crud.guardar_estado_reporte(db, scan_id, **values)
+        except Exception:
+            db.rollback()
+            logger.exception("No se pudo persistir el estado del reporte")
+        finally:
+            db.close()
+
+    @staticmethod
+    def get_report_info(scan_id: str) -> dict[str, Any] | None:
+        db = SessionLocal()
+        try:
+            report = crud.obtener_reporte(db, scan_id)
+            if report is None:
+                return None
+            return {
+                "scan_id": scan_id,
+                "status": report.status,
+                "file_name": report.file_name,
+                "size_bytes": report.size_bytes,
+                "sha256": report.sha256,
+                "generated_at": report.generated_at,
+                "download_count": report.download_count,
+                "last_downloaded_at": report.last_downloaded_at,
+            }
+        finally:
+            db.close()
+
+    @staticmethod
+    def get_report_path(scan_id: str) -> Path | None:
+        db = SessionLocal()
+        try:
+            report = crud.obtener_reporte(db, scan_id)
+            if report is None or report.status != "generated" or not report.storage_path:
+                return None
+            path = Path(report.storage_path)
+            return path if path.is_file() else None
+        finally:
+            db.close()
+
+    @staticmethod
+    def register_report_download(scan_id: str) -> None:
+        db = SessionLocal()
+        try:
+            crud.registrar_descarga_reporte(db, scan_id)
+        finally:
+            db.close()
 
     @staticmethod
     def _normalize_findings(scanner_name: str, result: dict, target_url: str) -> list[Finding]:

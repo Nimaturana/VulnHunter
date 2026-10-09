@@ -1,5 +1,7 @@
 #!/bin/sh
 set -eu
 
-python -m vulnhunter.database.init_db
+if [ "${RUN_DB_MIGRATIONS:-true}" = "true" ]; then
+    python -m vulnhunter.database.init_db
+fi
 exec "$@"

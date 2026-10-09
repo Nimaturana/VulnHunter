@@ -74,8 +74,10 @@ function Scans() {
                 <th style={tableCellStyle}>Sitio</th>
                 <th style={tableCellStyle}>Estado</th>
                 <th style={tableCellStyle}>Progreso</th>
+                <th style={tableCellStyle}>Ejecución</th>
                 <th style={tableCellStyle}>Hallazgos</th>
                 <th style={tableCellStyle}>Riesgo</th>
+                <th style={tableCellStyle}>PDF</th>
                 <th style={tableCellStyle}>Fecha</th>
                 <th style={tableCellStyle}>Acciones</th>
               </tr>
@@ -108,9 +110,25 @@ function Scans() {
                         <small style={{ color: "#94AFC7" }}>{scan.progress_percentage}%</small>
                       </div>
                     </td>
+                    <td style={tableCellStyle}>
+                      {scan.execution_mode === "celery" ? "Celery · Redis" : "FastAPI local"}
+                      {scan.task_id && (
+                        <small style={{ display: "block", color: "#64748B" }}>
+                          {scan.task_id.slice(0, 8)}
+                        </small>
+                      )}
+                    </td>
                     <td style={tableCellStyle}>{scan.total_vulnerabilities}</td>
                     <td style={{ ...tableCellStyle, color: riskColor(scan.risk_level) }}>
                       {RISK_LABELS[scan.risk_level]}
+                    </td>
+                    <td style={tableCellStyle}>
+                      {{
+                        not_generated: "Pendiente",
+                        generating: "Generando…",
+                        generated: "Disponible",
+                        failed: "Error",
+                      }[scan.report_status]}
                     </td>
                     <td style={{ ...tableCellStyle, color: "#94AFC7" }}>
                       {formatDate(scan.completed_at ?? scan.started_at)}
@@ -163,6 +181,11 @@ function Scans() {
             Scanners: {selected.progress.completed_scanners}/{selected.progress.total_scanners} ·
             Hallazgos: {selected.total_vulnerabilities}
           </p>
+          <p>
+            Ejecución: <strong>{selected.execution_mode === "celery" ? "Celery mediante Redis" : "FastAPI local"}</strong>
+            {selected.task_id && <> · Tarea: <code>{selected.task_id}</code></>}
+          </p>
+          <p>Reporte PDF: <strong>{selected.report_status}</strong></p>
           {Object.keys(selected.errors).length > 0 && (
             <div style={errorStyle}>
               {Object.entries(selected.errors).map(([scanner, message]) => (

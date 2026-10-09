@@ -44,6 +44,11 @@ class Scan(BaseModel):
     errors: dict[str, str] = Field(default_factory=dict)
     current_scanner: Optional[str] = None
     progress_percentage: int = 0
+    task_id: Optional[str] = None
+    execution_mode: str = "background"
+    queued_at: Optional[datetime] = None
+    worker_started_at: Optional[datetime] = None
+    report_status: str = "not_generated"
 
 
 class ScanSummary(BaseModel):
@@ -56,3 +61,18 @@ class ScanSummary(BaseModel):
     completed_at: Optional[datetime] = None
     progress_percentage: int = 0
     current_scanner: Optional[str] = None
+    task_id: Optional[str] = None
+    execution_mode: str = "background"
+    queued_at: Optional[datetime] = None
+    report_status: str = "not_generated"
+
+
+class ReportInfo(BaseModel):
+    scan_id: str
+    status: str
+    file_name: Optional[str] = None
+    size_bytes: Optional[int] = None
+    sha256: Optional[str] = None
+    generated_at: Optional[datetime] = None
+    download_count: int = 0
+    last_downloaded_at: Optional[datetime] = None

@@ -29,7 +29,10 @@ export function useScans(pollInterval = 2500) {
 
   useEffect(() => {
     const hasActiveScan = scans.some(
-      (scan) => scan.status === "pending" || scan.status === "running",
+      (scan) =>
+        scan.status === "pending" ||
+        scan.status === "running" ||
+        scan.report_status === "generating",
     );
     if (!hasActiveScan) return undefined;
 

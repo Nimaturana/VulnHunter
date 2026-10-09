@@ -27,6 +27,10 @@ export type ScanSummary = {
   completed_at: string | null;
   progress_percentage: number;
   current_scanner: string | null;
+  task_id: string | null;
+  execution_mode: "background" | "celery";
+  queued_at: string | null;
+  report_status: "not_generated" | "generating" | "generated" | "failed";
 };
 
 export type Finding = {
@@ -65,8 +69,21 @@ export type SystemStats = {
 export type StartScanResponse = {
   scan_id: string;
   status: ScanStatus;
+  task_id: string | null;
+  execution_mode: "background" | "celery";
   scanners_enabled: string[];
   check_status_url: string;
+};
+
+export type ReportInfo = {
+  scan_id: string;
+  status: "generating" | "generated" | "failed";
+  file_name: string | null;
+  size_bytes: number | null;
+  sha256: string | null;
+  generated_at: string | null;
+  download_count: number;
+  last_downloaded_at: string | null;
 };
 
 export function listScans(): Promise<ScanSummary[]> {
@@ -79,6 +96,10 @@ export function getScan(scanId: string): Promise<ScanDetail> {
 
 export function getStatistics(): Promise<SystemStats> {
   return apiRequest<SystemStats>("/stats");
+}
+
+export function getReportInfo(scanId: string): Promise<ReportInfo> {
+  return apiRequest<ReportInfo>(`/scans/${encodeURIComponent(scanId)}/report`);
 }
 
 export function startScan(url: string): Promise<StartScanResponse> {
