@@ -106,15 +106,17 @@ def obtener_scan(db: Session, scan_id: str) -> Scan | None:
     return db.query(Scan).filter(Scan.scan_id == scan_id).first()
 
 
-def listar_scans(db: Session, limit: int = 50, offset: int = 0) -> list[Scan]:
+def listar_scans(
+    db: Session,
+    limit: int = 50,
+    offset: int = 0,
+    status: str | None = None,
+) -> list[Scan]:
     """Lista escaneos, del más reciente al más antiguo."""
-    return (
-        db.query(Scan)
-        .order_by(Scan.started_at.desc())
-        .offset(offset)
-        .limit(limit)
-        .all()
-    )
+    query = db.query(Scan)
+    if status:
+        query = query.filter(Scan.status == status)
+    return query.order_by(Scan.started_at.desc()).offset(offset).limit(limit).all()
 
 
 def listar_todos_scans(db: Session) -> list[Scan]:

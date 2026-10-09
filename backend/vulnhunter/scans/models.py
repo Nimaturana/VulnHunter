@@ -52,4 +52,7 @@ class ScanSummary(BaseModel):
     status: str
     total_vulnerabilities: int
     risk_level: str
+    started_at: datetime
     completed_at: Optional[datetime] = None
+    progress_percentage: int = 0
+    current_scanner: Optional[str] = None

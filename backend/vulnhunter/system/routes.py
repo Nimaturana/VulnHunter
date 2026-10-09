@@ -33,7 +33,7 @@ async def health_check() -> dict:
         "status": "healthy",
         "timestamp": datetime.now(timezone.utc),
         "active_scans": scan_service.active_scan_count,
-        "storage": "memory",
+        "storage": "postgresql-with-memory-fallback",
         "queue": "fastapi-background-tasks",
     }
 

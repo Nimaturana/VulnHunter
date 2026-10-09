@@ -19,7 +19,11 @@ class Settings:
     environment: str = os.getenv("ENVIRONMENT", "development")
     docs_enabled: bool = os.getenv("DOCS_ENABLED", "true").lower() == "true"
     cors_origins: tuple[str, ...] = _csv_setting(
-        "CORS_ORIGINS", "http://localhost:3000,http://localhost:5173"
+        "CORS_ORIGINS",
+        (
+            "http://localhost:3000,http://127.0.0.1:3000,"
+            "http://localhost:5173,http://127.0.0.1:5173"
+        ),
     )
     report_dir: Path = Path(
         os.getenv("REPORT_DIR", str(REPOSITORY_ROOT / "artifacts" / "reports"))

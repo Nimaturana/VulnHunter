@@ -1,6 +1,20 @@
 name: vulnhunter
 
 services:
+  frontend:
+    image: vulnhunter-frontend:local
+    build:
+      context: ../..
+      dockerfile: infra/docker/frontend.Dockerfile
+      args:
+        VITE_API_URL: /api
+    ports:
+      - "${FRONTEND_PORT:-3000}:80"
+    restart: unless-stopped
+    depends_on:
+      api:
+        condition: service_healthy
+
   api:
     image: vulnhunter-api:local
     build:
@@ -23,6 +37,12 @@ services:
       - ../../artifacts/reports:/data/reports
     init: true
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
     depends_on:
       postgres:
         condition: service_healthy

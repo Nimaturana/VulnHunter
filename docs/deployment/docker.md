@@ -1,8 +1,7 @@
 # Ejecutar VulnHunter con Docker
 
-Docker permite ejecutar la API, PostgreSQL y Redis de forma aislada y
-reproducible. El frontend se agregará cuando exista una aplicación React
-ejecutable.
+Docker permite ejecutar el frontend React, la API, PostgreSQL y Redis de forma
+aislada y reproducible.
 
 ## 1. Requisitos en Windows
 
@@ -29,8 +28,9 @@ Copy-Item .env.docker.example .env.docker
 Abre `.env.docker` y reemplaza `POSTGRES_PASSWORD` por una contraseña larga.
 Este archivo está ignorado por Git y nunca debe subirse a GitHub.
 
-`API_PORT` controla el puerto visible en Windows. Si el puerto `8000` está
-ocupado, usa otro disponible, por ejemplo `API_PORT=8080`.
+`FRONTEND_PORT` controla la interfaz web y `API_PORT` la API visible en Windows.
+Si `8000` está ocupado, usa por ejemplo `API_PORT=8080`; el frontend seguirá
+conectándose internamente mediante `/api`.
 
 ## 3. Construir e iniciar
 
@@ -45,9 +45,9 @@ Luego revisa el estado:
 docker compose --env-file .env.docker -f infra/compose/docker-compose.yml ps
 ```
 
-Cuando `api`, `postgres` y `redis` estén saludables, abre las siguientes URLs
-(reemplaza `8000` por el valor configurado en `API_PORT`):
+Cuando `frontend`, `api`, `postgres` y `redis` estén saludables, abre:
 
+- Aplicación: <http://localhost:3000/>
 - API: <http://localhost:8000/>
 - Swagger: <http://localhost:8000/docs>
 - Salud: <http://localhost:8000/health>
@@ -94,9 +94,9 @@ docker compose --env-file .env.docker -f infra/compose/docker-compose.yml down -
 
 ## 6. Qué hace el arranque
 
-Antes de iniciar Uvicorn, el contenedor crea únicamente las tablas que falten.
-No borra tablas ni registros existentes. Cuando el esquema comience a cambiar,
-esta inicialización deberá reemplazarse por migraciones Alembic versionadas.
+Antes de iniciar Uvicorn, el contenedor aplica las migraciones Alembic
+versionadas. No borra tablas ni registros existentes. Nginx sirve React y
+redirige las solicitudes `/api` a FastAPI dentro de la red de Docker.
 
 ## 7. Preparación futura para AWS
 

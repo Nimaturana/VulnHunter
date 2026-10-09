@@ -1,4 +1,5 @@
 import asyncio
+import json
 import logging
 import time
 import uuid
@@ -55,7 +56,7 @@ def _console_block(*lines: str) -> None:
 
 
 class ScanService:
-    """Coordinates scans. In-memory storage is intentionally isolated for later replacement."""
+    """Coordinate scans with PostgreSQL persistence and an in-memory fallback."""
 
     def __init__(self) -> None:
         self._scans: dict[str, Scan] = {}
@@ -247,24 +248,43 @@ class ScanService:
             db.close()
 
     def get_scan(self, scan_id: str) -> Scan | None:
-        return self._scans.get(scan_id)
+        in_memory = self._scans.get(scan_id)
+        if in_memory is not None:
+            return in_memory
+
+        db = SessionLocal()
+        try:
+            stored = crud.obtener_scan(db, scan_id)
+            return self._scan_from_database(stored) if stored is not None else None
+        except Exception:
+            logger.warning("No se pudo consultar el escaneo en PostgreSQL", exc_info=True)
+            return None
+        finally:
+            db.close()
 
     def list_scans(self, limit: int, offset: int, status: str | None) -> list[ScanSummary]:
+        db = SessionLocal()
+        try:
+            stored_scans = crud.listar_scans(
+                db,
+                limit=limit,
+                offset=offset,
+                status=status,
+            )
+            return [self._summary_from_database(scan) for scan in stored_scans]
+        except Exception:
+            logger.warning(
+                "No se pudo listar desde PostgreSQL; se usará la memoria temporal",
+                exc_info=True,
+            )
+        finally:
+            db.close()
+
         scans = list(self._scans.values())
         if status:
             scans = [scan for scan in scans if scan.status == status]
         scans.sort(key=lambda item: item.started_at, reverse=True)
-        return [
-            ScanSummary(
-                scan_id=scan.scan_id,
-                url=scan.url,
-                status=scan.status,
-                total_vulnerabilities=len(scan.findings),
-                risk_level=scan.risk_level,
-                completed_at=scan.completed_at,
-            )
-            for scan in scans[offset : offset + limit]
-        ]
+        return [self._summary_from_scan(scan) for scan in scans[offset : offset + limit]]
 
     def serialize(self, scan: Scan) -> dict[str, Any]:
         data = scan.model_dump(mode="json")
@@ -280,7 +300,20 @@ class ScanService:
         return data
 
     def statistics(self) -> dict[str, Any]:
-        scans = list(self._scans.values())
+        storage = "postgresql"
+        db = SessionLocal()
+        try:
+            scans = [self._scan_from_database(scan) for scan in crud.listar_todos_scans(db)]
+        except Exception:
+            logger.warning(
+                "No se pudieron calcular estadísticas desde PostgreSQL; se usará la memoria",
+                exc_info=True,
+            )
+            scans = list(self._scans.values())
+            storage = "memory-fallback"
+        finally:
+            db.close()
+
         return {
             "total_scans": len(scans),
             "by_status": {
@@ -288,8 +321,84 @@ class ScanService:
                 for status in ("pending", "running", "completed", "partial", "failed")
             },
             "total_vulnerabilities": sum(len(scan.findings) for scan in scans),
-            "storage": "memory",
+            "storage": storage,
         }
+
+    @staticmethod
+    def _summary_from_scan(scan: Scan) -> ScanSummary:
+        return ScanSummary(
+            scan_id=scan.scan_id,
+            url=scan.url,
+            status=scan.status,
+            total_vulnerabilities=len(scan.findings),
+            risk_level=scan.risk_level,
+            started_at=scan.started_at,
+            completed_at=scan.completed_at,
+            progress_percentage=scan.progress_percentage,
+            current_scanner=scan.current_scanner,
+        )
+
+    @staticmethod
+    def _summary_from_database(scan: Any) -> ScanSummary:
+        progress = (
+            100
+            if scan.status in {"completed", "partial"}
+            else scan.progress_percentage
+        )
+        return ScanSummary(
+            scan_id=scan.scan_id,
+            url=scan.url,
+            status=scan.status,
+            total_vulnerabilities=scan.total_vulnerabilities,
+            risk_level=scan.risk_level or "LOW",
+            started_at=scan.started_at,
+            completed_at=scan.completed_at,
+            progress_percentage=progress,
+            current_scanner=scan.current_scanner,
+        )
+
+    @staticmethod
+    def _scan_from_database(stored: Any) -> Scan:
+        def parse_json(value: str | None, fallback: Any) -> Any:
+            if not value:
+                return fallback
+            try:
+                return json.loads(value)
+            except (TypeError, json.JSONDecodeError):
+                return fallback
+
+        findings = [
+            Finding(
+                type=item.type,
+                severity=item.severity,
+                location=item.location or stored.url,
+                scanner=item.scanner or "unknown",
+                description=item.description or "",
+                recommendation=item.recommendation or "",
+                evidence=item.evidence or "",
+                confidence=item.confidence or "low",
+            )
+            for item in stored.findings
+        ]
+        progress = (
+            100
+            if stored.status in {"completed", "partial"}
+            else stored.progress_percentage
+        )
+        return Scan(
+            scan_id=stored.scan_id,
+            url=stored.url,
+            scan_types=parse_json(stored.scan_types, []),
+            status=stored.status,
+            started_at=stored.started_at,
+            completed_at=stored.completed_at,
+            findings=findings,
+            risk_score=stored.risk_score or 0,
+            risk_level=stored.risk_level or "LOW",
+            errors=parse_json(stored.errors, {}),
+            current_scanner=stored.current_scanner,
+            progress_percentage=progress,
+        )
 
     def generate_report(self, scan: Scan) -> Path:
         settings = get_settings()
