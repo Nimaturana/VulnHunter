@@ -22,17 +22,22 @@ funcionalidades (Package by Feature)**.
 - `docs`: arquitectura, amenazas, reglas de compromiso y reportes de ejemplo.
 - `artifacts`: archivos generados localmente; no se versionan.
 
-## Ejecutar el prototipo
+## Ejecución tradicional (desarrollo rápido)
+
+Docker no es obligatorio para modificar el backend. FastAPI puede seguir
+ejecutándose directamente con el entorno virtual:
 
 ```powershell
 cd backend
 python -m venv .venv
 .venv\Scripts\Activate.ps1
 pip install -r requirements.txt
-uvicorn vulnhunter.main:app --reload
+python -m uvicorn vulnhunter.main:app --reload
 ```
 
-La documentación local queda en `http://localhost:8000/docs`.
+La documentación local queda en `http://localhost:8000/docs`. Esta modalidad
+es útil para trabajar rápidamente en scanners, API o reportes, pero no inicia
+PostgreSQL ni Redis. Para probar el sistema completo se recomienda Docker.
 
 ## Pruebas
 
@@ -50,10 +55,41 @@ Después ejecuta las pruebas desde la raíz del repositorio:
 
 ## Docker Compose
 
+Docker es la modalidad recomendada para integración, demostraciones y pruebas
+del sistema completo porque inicia FastAPI, PostgreSQL y Redis juntos.
+
+La primera vez, crea el archivo privado de configuración y cambia su contraseña:
+
 ```powershell
 Copy-Item .env.docker.example .env.docker
 docker compose --env-file .env.docker -f infra/compose/docker-compose.yml up --build -d
 ```
+
+En los siguientes inicios, si el código no cambió, basta con:
+
+```powershell
+docker compose --env-file .env.docker -f infra/compose/docker-compose.yml up -d
+```
+
+Si cambió el código Python, una dependencia o el Dockerfile, reconstruye la
+imagen:
+
+```powershell
+docker compose --env-file .env.docker -f infra/compose/docker-compose.yml up --build -d
+```
+
+Para detener los contenedores conservando los datos:
+
+```powershell
+docker compose --env-file .env.docker -f infra/compose/docker-compose.yml down
+```
+
+La URL depende de `API_PORT` en `.env.docker`. En este equipo se utiliza
+`http://localhost:8080/docs` porque Windows tiene ocupado el puerto `8000`.
+
+No ejecutes Uvicorn tradicional y la API Docker simultáneamente usando el mismo
+puerto. Antes de una entrega o demostración, valida siempre el proyecto con
+Docker.
 
 PostgreSQL recibe una copia de los escaneos y Redis queda preparado para la
 fase de colas. El prototipo todavía conserva los escaneos en memoria y usa

@@ -31,6 +31,14 @@ def build_database_url() -> str | URL:
     )
 
 
+def render_database_url() -> str:
+    """Render a connection URL without masking the password for SQLAlchemy."""
+    url = build_database_url()
+    if isinstance(url, URL):
+        return url.render_as_string(hide_password=False)
+    return url
+
+
 engine = create_engine(build_database_url(), pool_pre_ping=True)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()

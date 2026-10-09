@@ -16,12 +16,12 @@ dependencies = [
   "matplotlib>=3.10,<4",
   "sqlalchemy>=2.0.36,<3",
   "psycopg[binary]>=3.2,<4",
+  "alembic>=1.14,<2",
   "python-dotenv>=1.0,<2",
 ]
 
 [project.optional-dependencies]
 infrastructure = [
-  "alembic>=1.14,<2",
   "celery>=5.4,<6",
   "redis>=5,<7",
   "python-nmap>=0.7.1,<1",
@@ -38,6 +38,9 @@ dev = [
 
 [tool.setuptools.packages.find]
 include = ["vulnhunter*"]
+
+[tool.setuptools.package-data]
+"vulnhunter.database.migrations" = ["README", "script.py.mako"]
 
 [tool.pytest.ini_options]
 testpaths = ["../tests"]

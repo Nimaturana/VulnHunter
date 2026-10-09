@@ -7,6 +7,8 @@ from pathlib import Path
 from typing import Any
 
 from vulnhunter.config import get_settings
+from vulnhunter.database import crud
+from vulnhunter.database.connection import SessionLocal
 from vulnhunter.reports.pdf_generator import VulnHunterReportGenerator
 from vulnhunter.scanners.directory_scanner import DirectoryScanner
 from vulnhunter.scanners.security_headers_scanner import SecurityHeadersScanner
@@ -15,10 +17,6 @@ from vulnhunter.scanners.ssl_scanner import SSLScanner
 from vulnhunter.scanners.xss_scanner import XSSScanner
 from vulnhunter.scans.models import Finding, Scan, ScanRequest, ScanSummary
 from vulnhunter.scans.risk import calculate_risk
-from vulnhunter.database.connection import SessionLocal
-from vulnhunter.database import crud
-
-
 
 SCANNER_FACTORIES = {
     "xss": (XSSScanner, "scan_url"),
@@ -93,6 +91,7 @@ class ScanService:
                 scan_id=scan.scan_id,
                 url=scan.url,
                 scan_types=scan.scan_types,
+                description=request.description,
             )
         except Exception:
             logger.exception("No se pudo guardar el escaneo en la base de datos")
@@ -107,6 +106,8 @@ class ScanService:
         total_scanners = len(scan.scan_types)
         total_started = time.perf_counter()
         scan_tag = f"SCAN {scan.scan_id[:8]}"
+
+        self._persist_progress(scan)
 
         _console_block(
             "╔══════════════════════════════════════════════════════════════════════╗",
@@ -126,10 +127,11 @@ class ScanService:
             scanner_label = SCANNER_LABELS.get(scanner_name, scanner_name)
             scanner_started = time.perf_counter()
             scan.current_scanner = scanner_name
+            self._persist_progress(scan)
 
             _console_block(
                 f"┌─ [{scan_tag}] SCANNER {index}/{total_scanners} · {scanner_label}",
-                f"│ Estado   : ejecutando",
+                "│ Estado   : ejecutando",
                 f"│ Objetivo : {scan.url}",
                 "└─ Esperando resultado...",
             )
@@ -167,6 +169,7 @@ class ScanService:
                 )
 
             scan.progress_percentage = int(index / total_scanners * 100)
+            self._persist_progress(scan)
             _console_block(
                 f"[{scan_tag}] PROGRESO  {_progress_bar(scan.progress_percentage)}",
                 f"          {index}/{total_scanners} scanners · {len(scan.findings)} hallazgo(s) acumulado(s)",
@@ -190,6 +193,7 @@ class ScanService:
                 total_vulnerabilities=len(scan.findings),
                 risk_score=scan.risk_score,
                 risk_level=scan.risk_level,
+                errors=scan.errors,
             )
             if scan_db is not None:
                 crud.guardar_findings(db, scan_db.id, scan.findings)
@@ -222,6 +226,25 @@ class ScanService:
             f"║ PDF       : /scans/{scan.scan_id}/report.pdf",
             "╚══════════════════════════════════════════════════════════════════════╝",
         )
+
+    @staticmethod
+    def _persist_progress(scan: Scan) -> None:
+        """Best-effort persistence; a temporary DB failure must not abort a scan."""
+        db = SessionLocal()
+        try:
+            crud.actualizar_progreso_scan(
+                db,
+                scan.scan_id,
+                status=scan.status,
+                progress_percentage=scan.progress_percentage,
+                current_scanner=scan.current_scanner,
+                errors=scan.errors,
+            )
+        except Exception:
+            db.rollback()
+            logger.exception("No se pudo actualizar el progreso en la base de datos")
+        finally:
+            db.close()
 
     def get_scan(self, scan_id: str) -> Scan | None:
         return self._scans.get(scan_id)

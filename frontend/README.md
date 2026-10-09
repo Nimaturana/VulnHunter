@@ -1,7 +1,27 @@
-# Frontend
+# Frontend de VulnHunter
 
-El frontend todavía no forma parte del MVP ejecutable. Esta carpeta se conserva
-para incorporarlo cuando se seleccione e instale el toolchain de React.
+Interfaz React y TypeScript del MVP. Está organizada por funcionalidades para
+mantener separados autenticación, sitios, escaneos, hallazgos, reportes y
+configuración.
 
-Cuando exista código real, se organizará según las funcionalidades que se hayan
-implementado en ese momento.
+## Desarrollo
+
+```powershell
+npm install
+npm run dev
+```
+
+La aplicación se abre en `http://127.0.0.1:5173`. La URL del backend se define
+con `VITE_API_URL`; copia `.env.example` como `.env.local` cuando necesites
+sobrescribirla.
+
+## Validación
+
+```powershell
+npm run typecheck
+npm run build
+```
+
+El cliente HTTP compartido está preparado en `src/shared/api/client.ts`, pero
+las pantallas todavía utilizan datos de demostración hasta completar la
+integración con FastAPI.

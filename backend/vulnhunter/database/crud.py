@@ -1,16 +1,30 @@
 # vulnhunter/database/crud.py
 import json
 from datetime import datetime, timezone
+
 from sqlalchemy.orm import Session
-from vulnhunter.database.models import Scan, Finding
+
+from vulnhunter.database.models import Finding, Scan
 
 
-def crear_scan(db: Session, scan_id: str, url: str, scan_types: list[str]) -> Scan:
+def crear_scan(
+    db: Session,
+    scan_id: str,
+    url: str,
+    scan_types: list[str],
+    *,
+    website_id: int | None = None,
+    requested_by_user_id: int | None = None,
+    description: str | None = None,
+) -> Scan:
     """Guarda un escaneo nuevo en estado 'pending'."""
     nuevo = Scan(
         scan_id=scan_id,
         url=url,
-        scan_types=json.dumps(scan_types),   # la lista se guarda como texto JSON
+        website_id=website_id,
+        requested_by_user_id=requested_by_user_id,
+        description=description,
+        scan_types=json.dumps(scan_types),
         status="pending",
         started_at=datetime.now(timezone.utc),
     )
@@ -20,9 +34,38 @@ def crear_scan(db: Session, scan_id: str, url: str, scan_types: list[str]) -> Sc
     return nuevo
 
 
-def finalizar_scan(db: Session, scan_id: str, status: str,
-                   total_vulnerabilities: int, risk_score: int,
-                   risk_level: str) -> Scan | None:
+def actualizar_progreso_scan(
+    db: Session,
+    scan_id: str,
+    *,
+    status: str,
+    progress_percentage: int,
+    current_scanner: str | None,
+    errors: dict[str, str] | None = None,
+) -> Scan | None:
+    """Persiste el estado observable de un escaneo en ejecución."""
+    scan = obtener_scan(db, scan_id)
+    if scan is None:
+        return None
+    scan.status = status
+    scan.progress_percentage = progress_percentage
+    scan.current_scanner = current_scanner
+    if errors is not None:
+        scan.errors = json.dumps(errors)
+    db.commit()
+    db.refresh(scan)
+    return scan
+
+
+def finalizar_scan(
+    db: Session,
+    scan_id: str,
+    status: str,
+    total_vulnerabilities: int,
+    risk_score: int,
+    risk_level: str,
+    errors: dict[str, str] | None = None,
+) -> Scan | None:
     """Actualiza un escaneo cuando termina, con sus resultados finales."""
     scan = db.query(Scan).filter(Scan.scan_id == scan_id).first()
     if scan is None:
@@ -32,6 +75,9 @@ def finalizar_scan(db: Session, scan_id: str, status: str,
     scan.total_vulnerabilities = total_vulnerabilities
     scan.risk_score = risk_score
     scan.risk_level = risk_level
+    scan.progress_percentage = 100
+    scan.current_scanner = None
+    scan.errors = json.dumps(errors or {})
     db.commit()
     db.refresh(scan)
     return scan

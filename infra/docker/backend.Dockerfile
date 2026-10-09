@@ -15,6 +15,7 @@ RUN addgroup --system --gid 10001 vulnhunter \
 
 COPY backend/pyproject.toml ./pyproject.toml
 COPY backend/vulnhunter ./vulnhunter
+COPY backend/alembic.ini ./alembic.ini
 
 RUN python -m pip install --no-cache-dir . \
     && mkdir -p /data/reports /tmp/matplotlib \
