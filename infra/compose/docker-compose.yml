@@ -35,6 +35,8 @@ services:
       POSTGRES_DB: ${POSTGRES_DB:-vulnhunter}
       POSTGRES_USER: ${POSTGRES_USER:-vulnhunter}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Define POSTGRES_PASSWORD in .env.docker}
+    ports:
+      - "127.0.0.1:${POSTGRES_HOST_PORT:-5433}:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
       interval: 5s

@@ -1,0 +1,23 @@
+{
+  "name": "vulnhunter-frontend",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Interfaz web del MVP VulnHunter",
+  "scripts": {
+    "dev": "vite",
+    "typecheck": "tsc --noEmit",
+    "build": "npm run typecheck && vite build",
+    "preview": "vite preview"
+  },
+  "type": "module",
+  "dependencies": {
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8"
+  },
+  "devDependencies": {
+    "@types/react": "^19.2.18",
+    "@types/react-dom": "^19.2.7",
+    "typescript": "^7.0.2",
+    "vite": "^8.2.2"
+  }
+}

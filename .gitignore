@@ -12,7 +12,12 @@ __pycache__/
 .venv/
 venv/
 node_modules/
-frontend/dist/
+dist/
+coverage/
+.vite/
+*.tsbuildinfo
+.eslintcache
 artifacts/reports/*.pdf
 !artifacts/reports/.gitkeep
 artifacts/cache/
+.env.docker
