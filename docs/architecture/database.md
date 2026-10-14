@@ -11,13 +11,19 @@ de `Base.metadata.create_all` como mecanismo de actualización.
 - `websites`: activo web, propietario y verificación de autorización.
 - `scans`: ejecución, solicitante, progreso, estado, riesgo y errores.
 - `findings`: evidencia normalizada, severidad, recomendación y confianza.
+- `reports`: estado del PDF, ruta, tamaño, SHA-256 y auditoría de descargas.
 
 Relaciones principales:
 
 ```text
 users 1 ─── N websites 1 ─── N scans 1 ─── N findings
   └────────────────────────── N scans (requested_by_user_id)
+                                  └────── 1 report
 ```
+
+Cada fila de `scans` conserva además `task_id`, `execution_mode`, `queued_at` y
+`worker_started_at`. Redis conserva el mensaje y resultado temporal de Celery;
+PostgreSQL mantiene la trazabilidad duradera que necesita la aplicación.
 
 `requested_by_user_id` y `website_id` permanecen opcionales hasta que se
 incorporen autenticación y registro de activos al flujo de la API. Una vez

@@ -20,6 +20,7 @@ async def root() -> dict:
             "scan": "POST /scans",
             "results": "GET /scans/{scan_id}",
             "pdf": "GET /scans/{scan_id}/report.pdf",
+            "report_metadata": "GET /scans/{scan_id}/report",
             "list": "GET /scans",
             "stats": "GET /stats",
             "health": "GET /health",
@@ -29,12 +30,13 @@ async def root() -> dict:
 
 @router.get("/health")
 async def health_check() -> dict:
+    settings = get_settings()
     return {
         "status": "healthy",
         "timestamp": datetime.now(timezone.utc),
         "active_scans": scan_service.active_scan_count,
-        "storage": "memory",
-        "queue": "fastapi-background-tasks",
+        "storage": "postgresql-with-memory-fallback",
+        "queue": "celery-redis" if settings.task_queue_enabled else "fastapi-background-tasks",
     }
 
 

@@ -3,6 +3,7 @@
 from datetime import datetime, timezone
 
 from sqlalchemy import (
+    BigInteger,
     Boolean,
     CheckConstraint,
     Column,
@@ -101,9 +102,15 @@ class Scan(Base):
             "risk_level IS NULL OR risk_level IN ('CRITICAL', 'HIGH', 'MEDIUM', 'LOW', 'INFO')",
             name="ck_scans_risk_level",
         ),
+        CheckConstraint(
+            "execution_mode IN ('background', 'celery')",
+            name="ck_scans_execution_mode",
+        ),
+        UniqueConstraint("task_id", name="uq_scans_task_id"),
         Index("ix_scans_website_id", "website_id"),
         Index("ix_scans_requested_by_user_id", "requested_by_user_id"),
         Index("ix_scans_status_started_at", "status", "started_at"),
+        Index("ix_scans_task_id", "task_id"),
     )
 
     id = Column(Integer, primary_key=True, index=True)
@@ -131,6 +138,12 @@ class Scan(Base):
     risk_score = Column(Integer, nullable=True)
     risk_level = Column(String(50), nullable=True)
     errors = Column(Text, nullable=False, default="{}", server_default="{}")
+    task_id = Column(String(255), nullable=True)
+    execution_mode = Column(
+        String(20), nullable=False, default="background", server_default="background"
+    )
+    queued_at = Column(DateTime(timezone=True), nullable=True)
+    worker_started_at = Column(DateTime(timezone=True), nullable=True)
 
     website = relationship("Website", back_populates="scans")
     requested_by = relationship(
@@ -143,6 +156,13 @@ class Scan(Base):
         back_populates="scan",
         cascade="all, delete-orphan",
         passive_deletes=True,
+    )
+    report = relationship(
+        "Report",
+        back_populates="scan",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+        uselist=False,
     )
 
 
@@ -179,3 +199,36 @@ class Finding(Base):
     )
 
     scan = relationship("Scan", back_populates="findings")
+
+
+class Report(Base):
+    __tablename__ = "reports"
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('generating', 'generated', 'failed')",
+            name="ck_reports_status",
+        ),
+        UniqueConstraint("scan_id", name="uq_reports_scan_id"),
+        Index("ix_reports_status_generated_at", "status", "generated_at"),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    scan_id = Column(Integer, ForeignKey("scans.id", ondelete="CASCADE"), nullable=False)
+    status = Column(String(20), nullable=False, default="generating", server_default="generating")
+    file_name = Column(String(255), nullable=True)
+    storage_path = Column(String(1000), nullable=True)
+    media_type = Column(String(100), nullable=False, default="application/pdf", server_default="application/pdf")
+    size_bytes = Column(BigInteger, nullable=True)
+    sha256 = Column(String(64), nullable=True)
+    error_message = Column(Text, nullable=True)
+    created_at = Column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=lambda: datetime.now(timezone.utc),
+        server_default=text("CURRENT_TIMESTAMP"),
+    )
+    generated_at = Column(DateTime(timezone=True), nullable=True)
+    download_count = Column(Integer, nullable=False, default=0, server_default="0")
+    last_downloaded_at = Column(DateTime(timezone=True), nullable=True)
+
+    scan = relationship("Scan", back_populates="report")

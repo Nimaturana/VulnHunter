@@ -1,8 +1,6 @@
 const configuredApiUrl = import.meta.env.VITE_API_URL?.trim();
 
-export const API_BASE_URL = (
-  configuredApiUrl || "http://127.0.0.1:8080"
-).replace(/\/$/, "");
+export const API_BASE_URL = (configuredApiUrl || "/api").replace(/\/$/, "");
 
 export class ApiError extends Error {
   constructor(
@@ -27,7 +25,14 @@ export async function apiRequest<T>(
   });
 
   if (!response.ok) {
-    throw new ApiError(response.status, `API request failed: ${response.status}`);
+    let message = `La API respondió con estado ${response.status}`;
+    try {
+      const payload = (await response.json()) as { detail?: string };
+      if (payload.detail) message = payload.detail;
+    } catch {
+      // The fallback message remains useful for non-JSON responses.
+    }
+    throw new ApiError(response.status, message);
   }
 
   return response.json() as Promise<T>;

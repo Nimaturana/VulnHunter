@@ -1,457 +1,222 @@
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
-const stats = [
-  { title: "Escaneos realizados", value: "24", icon: "🔍" },
-  { title: "Vulnerabilidades", value: "17", icon: "⚠️" },
-  { title: "Críticas", value: "3", icon: "🚨" },
-  { title: "Sitios monitoreados", value: "5", icon: "🌐" },
-];
+import { NewScanDialog } from "../../features/scans/components/NewScanDialog";
+import {
+  formatDate,
+  getScan,
+  getStatistics,
+  RISK_LABELS,
+  riskColor,
+  STATUS_LABELS,
+  type Finding,
+  type ScanDetail,
+  type SystemStats,
+} from "../../shared/api/scans";
+import { useScans } from "../../shared/hooks/useScans";
+import {
+  cardStyle,
+  errorStyle,
+  pageStyle,
+  primaryButtonStyle,
+  successStyle,
+  tableCellStyle,
+  tableStyle,
+  tableWrapStyle,
+} from "../../shared/styles/layout";
 
-const scans = [
-  {
-    url: "https://tienda-ejemplo.cl",
-    status: "Completado",
-    risk: "ALTO",
-    date: "06/09/2026",
-  },
-  {
-    url: "https://empresa-demo.cl",
-    status: "Completado",
-    risk: "MEDIO",
-    date: "05/09/2026",
-  },
-  {
-    url: "https://portal-prueba.cl",
-    status: "Ejecutándose",
-    risk: "Analizando",
-    date: "05/09/2026",
-  },
-];
-
-const vulnerabilities = [
-  { severity: "Críticas", value: 3, color: "#ef4444" },
-  { severity: "Altas", value: 5, color: "#f97316" },
-  { severity: "Medias", value: 6, color: "#eab308" },
-  { severity: "Bajas", value: 3, color: "#22c55e" },
-];
-
-const cardStyle = {
-  backgroundColor: "#0F1B2D",
-  border: "1px solid #1B2B40",
-  borderRadius: "12px",
-  padding: "22px",
-};
-
-const tableCellStyle = {
-  padding: "14px 10px",
+const emptyStats: SystemStats = {
+  total_scans: 0,
+  total_vulnerabilities: 0,
+  by_status: { pending: 0, running: 0, completed: 0, partial: 0, failed: 0 },
+  storage: "unknown",
 };
 
 function Dashboard() {
+  const { scans, loading, error, refresh } = useScans();
   const [showNewScan, setShowNewScan] = useState(false);
-  const [scanUrl, setScanUrl] = useState("");
+  const [startedScan, setStartedScan] = useState<string | null>(null);
+  const [stats, setStats] = useState<SystemStats>(emptyStats);
+  const [latestDetail, setLatestDetail] = useState<ScanDetail | null>(null);
+
+  useEffect(() => {
+    void getStatistics().then(setStats).catch(() => undefined);
+  }, [scans]);
+
+  useEffect(() => {
+    const latestFinished = scans.find(
+      (scan) => scan.status === "completed" || scan.status === "partial",
+    );
+    if (!latestFinished) {
+      setLatestDetail(null);
+      return;
+    }
+    void getScan(latestFinished.scan_id).then(setLatestDetail).catch(() => undefined);
+  }, [scans]);
+
+  const siteCount = useMemo(() => new Set(scans.map((scan) => scan.url)).size, [scans]);
+  const severities = useMemo(() => {
+    const counts: Record<string, number> = { CRITICAL: 0, HIGH: 0, MEDIUM: 0, LOW: 0 };
+    for (const finding of latestDetail?.vulnerabilities ?? []) {
+      counts[finding.severity] = (counts[finding.severity] ?? 0) + 1;
+    }
+    return counts;
+  }, [latestDetail]);
+
+  const latestRisk = latestDetail?.risk_level ?? "LOW";
+  const latestFindings: Finding[] = latestDetail?.vulnerabilities ?? [];
+  const cards = [
+    { title: "Escaneos realizados", value: stats.total_scans, icon: "🔍" },
+    { title: "Hallazgos acumulados", value: stats.total_vulnerabilities, icon: "⚠️" },
+    { title: "Escaneos activos", value: stats.by_status.running + stats.by_status.pending, icon: "⏳" },
+    { title: "Sitios analizados", value: siteCount, icon: "🌐" },
+  ];
 
   return (
-    <main
-      style={{
-        flex: 1,
-        padding: "32px",
-      }}
-    >
-      {/* HEADER */}
+    <main style={pageStyle}>
       <header
         style={{
           display: "flex",
           justifyContent: "space-between",
           alignItems: "center",
-          marginBottom: "35px",
+          gap: 20,
+          marginBottom: 28,
         }}
       >
         <div>
-          <h1
-            style={{
-              margin: 0,
-              fontSize: "30px",
-            }}
-          >
-            Dashboard de Seguridad
-          </h1>
-
-          <p
-            style={{
-              color: "#94a3b8",
-              marginTop: "8px",
-            }}
-          >
-            Resumen general del estado de seguridad de tus sitios web.
+          <h1 style={{ margin: 0, fontSize: 30 }}>Dashboard de seguridad</h1>
+          <p style={{ color: "#94AFC7", marginTop: 8 }}>
+            Información real entregada por FastAPI y persistida en PostgreSQL.
           </p>
         </div>
-
-        <button
-          onClick={() => setShowNewScan(true)}
-          style={{
-            backgroundColor: "#1677FF",
-            color: "white",
-            border: "none",
-            borderRadius: "8px",
-            padding: "12px 20px",
-            cursor: "pointer",
-            fontWeight: "bold",
-          }}
-        >
+        <button onClick={() => setShowNewScan(true)} style={primaryButtonStyle}>
           + Nuevo escaneo
         </button>
       </header>
 
-      {/* TARJETAS */}
+      {error && (
+        <div style={errorStyle}>
+          No se pudo conectar con la API: {error}. Comprueba que FastAPI o Docker estén activos.
+        </div>
+      )}
+      {startedScan && (
+        <div style={successStyle}>
+          Escaneo {startedScan.slice(0, 8)} iniciado. El progreso se actualizará automáticamente.
+        </div>
+      )}
+
       <section
         style={{
           display: "grid",
-          gridTemplateColumns: "repeat(4, 1fr)",
-          gap: "18px",
-          marginBottom: "25px",
+          gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
+          gap: 18,
+          marginBottom: 24,
         }}
       >
-        {stats.map((stat) => (
-          <div key={stat.title} style={cardStyle}>
-            <div
-              style={{
-                fontSize: "27px",
-                marginBottom: "15px",
-              }}
-            >
-              {stat.icon}
-            </div>
-
-            <p
-              style={{
-                color: "#94AFC7",
-                margin: 0,
-                fontSize: "14px",
-              }}
-            >
-              {stat.title}
-            </p>
-
-            <h2
-              style={{
-                fontSize: "28px",
-                margin: "7px 0 0",
-              }}
-            >
-              {stat.value}
-            </h2>
+        {cards.map((card) => (
+          <div key={card.title} style={cardStyle}>
+            <div style={{ fontSize: 26 }}>{card.icon}</div>
+            <p style={{ color: "#94AFC7", marginBottom: 6 }}>{card.title}</p>
+            <strong style={{ fontSize: 28 }}>{loading ? "…" : card.value}</strong>
           </div>
         ))}
       </section>
 
-      {/* ESTADO + VULNERABILIDADES */}
       <section
         style={{
           display: "grid",
-          gridTemplateColumns: "1.3fr 1fr",
-          gap: "20px",
-          marginBottom: "25px",
+          gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))",
+          gap: 20,
+          marginBottom: 24,
         }}
       >
-        {/* ESTADO GENERAL */}
         <div style={cardStyle}>
-          <h3 style={{ marginTop: 0 }}>Estado general de seguridad</h3>
-
-          <div
-            style={{
-              marginTop: "25px",
-              display: "flex",
-              alignItems: "center",
-              gap: "20px",
-            }}
-          >
-            <div
-              style={{
-                width: "85px",
-                height: "85px",
-                borderRadius: "50%",
-                border: "8px solid #f97316",
-                display: "flex",
-                justifyContent: "center",
-                alignItems: "center",
-                fontSize: "24px",
-                fontWeight: "bold",
-              }}
-            >
-              72
-            </div>
-
-            <div>
-              <p
-                style={{
-                  margin: 0,
-                  color: "#94a3b8",
-                }}
-              >
-                Nivel de riesgo actual
-              </p>
-
-              <h2
-                style={{
-                  color: "#f97316",
-                  margin: "6px 0",
-                }}
-              >
-                ALTO
-              </h2>
-
-              <p
-                style={{
-                  color: "#D7E6F3",
-                  margin: 0,
-                  fontSize: "14px",
-                }}
-              >
-                Se recomienda revisar primero los hallazgos críticos y altos.
-              </p>
-            </div>
-          </div>
-        </div>
-
-        {/* SEVERIDADES */}
-        <div style={cardStyle}>
-          <h3 style={{ marginTop: 0 }}>Vulnerabilidades por severidad</h3>
-
-          <div
-            style={{
-              display: "flex",
-              flexDirection: "column",
-              gap: "13px",
-              marginTop: "20px",
-            }}
-          >
-            {vulnerabilities.map((item) => (
+          <h3 style={{ marginTop: 0 }}>Último análisis finalizado</h3>
+          {latestDetail ? (
+            <div style={{ display: "flex", alignItems: "center", gap: 20 }}>
               <div
-                key={item.severity}
                 style={{
-                  display: "flex",
-                  justifyContent: "space-between",
-                  alignItems: "center",
+                  width: 82,
+                  height: 82,
+                  borderRadius: "50%",
+                  border: `8px solid ${riskColor(latestRisk)}`,
+                  display: "grid",
+                  placeItems: "center",
+                  fontSize: 22,
+                  fontWeight: 700,
                 }}
               >
-                <div
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: "10px",
-                  }}
-                >
-                  <span
-                    style={{
-                      width: "10px",
-                      height: "10px",
-                      borderRadius: "50%",
-                      backgroundColor: item.color,
-                    }}
-                  />
-
-                  <span>{item.severity}</span>
-                </div>
-
-                <strong>{item.value}</strong>
+                {latestDetail.risk_score}
               </div>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      {/* ÚLTIMOS ESCANEOS */}
-      <section style={cardStyle}>
-        <div
-          style={{
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "center",
-            marginBottom: "20px",
-          }}
-        >
-          <h3 style={{ margin: 0 }}>Últimos escaneos</h3>
-
-          <button
-            style={{
-              background: "transparent",
-              border: "none",
-              color: "#29C7F6",
-              cursor: "pointer",
-            }}
-          >
-            Ver todos →
-          </button>
-        </div>
-
-        <table
-          style={{
-            width: "100%",
-            borderCollapse: "collapse",
-            textAlign: "left",
-          }}
-        >
-          <thead>
-            <tr
-              style={{
-                color: "#94a3b8",
-                borderBottom: "1px solid #334155",
-              }}
-            >
-              <th style={tableCellStyle}>Sitio</th>
-              <th style={tableCellStyle}>Estado</th>
-              <th style={tableCellStyle}>Riesgo</th>
-              <th style={tableCellStyle}>Fecha</th>
-            </tr>
-          </thead>
-
-          <tbody>
-            {scans.map((scan) => (
-              <tr
-                key={scan.url}
-                style={{
-                  borderBottom: "1px solid #1e293b",
-                }}
-              >
-                <td style={tableCellStyle}>{scan.url}</td>
-
-                <td style={tableCellStyle}>
-                  <span
-                    style={{
-                      color:
-                        scan.status === "Completado"
-                          ? "#22c55e"
-                          : "#60a5fa",
-                    }}
-                  >
-                    ● {scan.status}
-                  </span>
-                </td>
-
-                <td style={tableCellStyle}>
-                  <strong
-                    style={{
-                      color:
-                        scan.risk === "ALTO"
-                          ? "#f97316"
-                          : scan.risk === "MEDIO"
-                            ? "#eab308"
-                            : "#60a5fa",
-                    }}
-                  >
-                    {scan.risk}
-                  </strong>
-                </td>
-
-                <td
-                  style={{
-                    ...tableCellStyle,
-                    color: "#94a3b8",
-                  }}
-                >
-                  {scan.date}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </section>
-
-      {/* MODAL NUEVO ESCANEO */}
-      {showNewScan && (
-        <div
-          style={{
-            position: "fixed",
-            top: 0,
-            left: 0,
-            width: "100%",
-            height: "100%",
-            backgroundColor: "rgba(0, 0, 0, 0.65)",
-            display: "flex",
-            justifyContent: "center",
-            alignItems: "center",
-            zIndex: 1000,
-          }}
-        >
-          <div
-            style={{
-              width: "460px",
-              backgroundColor: "#0F1B2D",
-              border: "1px solid #1B2B40",
-              borderRadius: "14px",
-              padding: "28px",
-              boxShadow: "0 20px 50px rgba(0, 0, 0, 0.4)",
-            }}
-          >
-            <h2 style={{ marginTop: 0 }}>Nuevo escaneo</h2>
-
-            <p
-              style={{
-                color: "#94AFC7",
-                marginBottom: "20px",
-              }}
-            >
-              Ingresa la URL del sitio web que deseas analizar.
-            </p>
-
-            <input
-              type="url"
-              placeholder="https://ejemplo.cl"
-              value={scanUrl}
-              onChange={(e) => setScanUrl(e.target.value)}
-              style={{
-                width: "100%",
-                padding: "12px",
-                borderRadius: "8px",
-                border: "1px solid #334155",
-                backgroundColor: "#07111F",
-                color: "#F8FAFC",
-                outline: "none",
-                marginBottom: "22px",
-              }}
-            />
-
-            <div
-              style={{
-                display: "flex",
-                justifyContent: "flex-end",
-                gap: "12px",
-              }}
-            >
-              <button
-                onClick={() => {
-                  setShowNewScan(false);
-                  setScanUrl("");
-                }}
-                style={{
-                  backgroundColor: "transparent",
-                  color: "#94AFC7",
-                  border: "1px solid #334155",
-                  borderRadius: "8px",
-                  padding: "10px 16px",
-                  cursor: "pointer",
-                }}
-              >
-                Cancelar
-              </button>
-
-              <button
-                style={{
-                  backgroundColor: "#1677FF",
-                  color: "white",
-                  border: "none",
-                  borderRadius: "8px",
-                  padding: "10px 18px",
-                  cursor: "pointer",
-                  fontWeight: "bold",
-                }}
-              >
-                Iniciar escaneo
-              </button>
+              <div>
+                <p style={{ color: "#94AFC7", margin: 0 }}>{latestDetail.url}</p>
+                <h2 style={{ color: riskColor(latestRisk), margin: "7px 0" }}>
+                  {RISK_LABELS[latestRisk]}
+                </h2>
+                <span>{latestFindings.length} hallazgo(s)</span>
+              </div>
             </div>
-          </div>
+          ) : (
+            <p style={{ color: "#94AFC7" }}>Aún no hay un escaneo finalizado.</p>
+          )}
         </div>
-      )}
+
+        <div style={cardStyle}>
+          <h3 style={{ marginTop: 0 }}>Hallazgos del último análisis</h3>
+          {(["CRITICAL", "HIGH", "MEDIUM", "LOW"] as const).map((severity) => (
+            <div
+              key={severity}
+              style={{ display: "flex", justifyContent: "space-between", marginTop: 14 }}
+            >
+              <span style={{ color: riskColor(severity) }}>{RISK_LABELS[severity]}</span>
+              <strong>{severities[severity]}</strong>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      <section style={cardStyle}>
+        <h3 style={{ marginTop: 0 }}>Últimos escaneos</h3>
+        <div style={tableWrapStyle}>
+          <table style={tableStyle}>
+            <thead>
+              <tr style={{ color: "#94AFC7" }}>
+                <th style={tableCellStyle}>Sitio</th>
+                <th style={tableCellStyle}>Estado</th>
+                <th style={tableCellStyle}>Progreso</th>
+                <th style={tableCellStyle}>Riesgo</th>
+                <th style={tableCellStyle}>Fecha</th>
+              </tr>
+            </thead>
+            <tbody>
+              {scans.slice(0, 5).map((scan) => (
+                <tr key={scan.scan_id}>
+                  <td style={tableCellStyle}>{scan.url}</td>
+                  <td style={tableCellStyle}>{STATUS_LABELS[scan.status]}</td>
+                  <td style={tableCellStyle}>{scan.progress_percentage}%</td>
+                  <td style={{ ...tableCellStyle, color: riskColor(scan.risk_level) }}>
+                    {RISK_LABELS[scan.risk_level]}
+                  </td>
+                  <td style={{ ...tableCellStyle, color: "#94AFC7" }}>
+                    {formatDate(scan.completed_at ?? scan.started_at)}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        {!loading && scans.length === 0 && (
+          <p style={{ color: "#94AFC7" }}>No hay escaneos. Inicia el primero desde este panel.</p>
+        )}
+      </section>
+
+      <NewScanDialog
+        open={showNewScan}
+        onClose={() => setShowNewScan(false)}
+        onStarted={async (scanId) => {
+          setStartedScan(scanId);
+          await refresh();
+        }}
+      />
     </main>
   );
 }

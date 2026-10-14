@@ -17,7 +17,7 @@ COPY backend/pyproject.toml ./pyproject.toml
 COPY backend/vulnhunter ./vulnhunter
 COPY backend/alembic.ini ./alembic.ini
 
-RUN python -m pip install --no-cache-dir . \
+RUN python -m pip install --no-cache-dir ".[infrastructure]" \
     && mkdir -p /data/reports /tmp/matplotlib \
     && chown -R vulnhunter:vulnhunter /data/reports /tmp/matplotlib
 
