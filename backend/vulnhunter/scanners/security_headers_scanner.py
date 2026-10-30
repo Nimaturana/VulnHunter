@@ -1,348 +1,190 @@
-# scanners/security_headers_scanner.py
-import requests
-from typing import Dict, List
+"""Context-aware HTTP security-header assessment."""
+
+from __future__ import annotations
+
+import re
 import time
 from datetime import datetime
-import re
+from typing import Dict, List, Optional
+from urllib.parse import urlparse
+
+import requests
+
 
 class SecurityHeadersScanner:
-    def __init__(self):
+    def __init__(self) -> None:
         self.name = "security_headers"
-        self.description = "Analiza headers de seguridad HTTP"
-        
-        # Headers críticos que debe tener todo sitio web
-        self.required_headers = {
-            'X-Content-Type-Options': {
-                'expected': 'nosniff',
-                'description': 'Previene MIME sniffing attacks',
-                'severity': 'MEDIUM'
-            },
-            'X-Frame-Options': {
-                'expected': ['DENY', 'SAMEORIGIN'],
-                'description': 'Previene ataques de clickjacking',
-                'severity': 'HIGH'
-            },
-            'X-XSS-Protection': {
-                'expected': '1; mode=block',
-                'description': 'Activa protección XSS del navegador',
-                'severity': 'MEDIUM'
-            },
-            'Strict-Transport-Security': {
-                'expected': None,
-                'description': 'Fuerza conexiones HTTPS',
-                'severity': 'HIGH'
-            },
-            'Content-Security-Policy': {
-                'expected': None,
-                'description': 'Previene ataques XSS y injection',
-                'severity': 'HIGH'
-            },
-            'Referrer-Policy': {
-                'expected': ['no-referrer', 'no-referrer-when-downgrade', 'strict-origin', 'strict-origin-when-cross-origin'],
-                'description': 'Controla información del referrer',
-                'severity': 'LOW'
-            },
-            'Permissions-Policy': {
-                'expected': None,
-                'description': 'Controla características del navegador (cámara, micrófono, etc)',
-                'severity': 'MEDIUM'
-            },
-            'Cross-Origin-Embedder-Policy': {
-                'expected': None,
-                'description': 'Protege contra ataques de espectador',
-                'severity': 'MEDIUM'
-            },
-            'Cross-Origin-Opener-Policy': {
-                'expected': None,
-                'description': 'Aísla ventanas entre sitios diferentes',
-                'severity': 'MEDIUM'
-            }
-        }
+        self.description = "Analiza controles HTTP aplicables al contexto de la respuesta"
 
     def scan(self, url: str) -> Dict:
-        """Escanea headers de seguridad de una URL"""
-        start_time = time.time()
-        vulnerabilities = []
-        
-        # Headers personalizados para la solicitud
-        request_headers = {
-            'User-Agent': 'SecurityHeadersScanner/2.0 (Security Audit Tool)',
-            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-            'Accept-Language': 'en-US,en;q=0.5',
-            'Accept-Encoding': 'gzip, deflate',
-            'Connection': 'close'
-        }
-        
+        started = time.time()
+        findings: list[Dict] = []
+        error: Optional[str] = None
+        response = None
         try:
-            # Hacer petición HTTP con headers personalizados
             response = requests.get(
-                url, 
-                timeout=15, 
-                allow_redirects=True, 
-                headers=request_headers,
-                verify=True  # Verificar certificados SSL
+                url,
+                timeout=15,
+                allow_redirects=True,
+                headers={"User-Agent": "VulnHunter/0.1 (authorized security assessment)"},
+                verify=True,
             )
-            
             headers = response.headers
-            final_url = response.url  # URL final después de redirects
-            
-            # Analizar cada header requerido
-            for header_name, config in self.required_headers.items():
-                vulnerability = self._check_header(header_name, headers, config)
-                if vulnerability:
-                    vulnerabilities.append(vulnerability)
-            
-            # Verificar headers peligrosos que NO deberían estar
-            dangerous_headers = self._check_dangerous_headers(headers)
-            vulnerabilities.extend(dangerous_headers)
-            
-            # Verificación especial para CSP
-            csp_vuln = self._check_csp_policy(headers)
-            if csp_vuln:
-                vulnerabilities.append(csp_vuln)
-                
-            # Verificación especial para HSTS
-            hsts_vuln = self._check_hsts_policy(headers)
-            if hsts_vuln:
-                vulnerabilities.append(hsts_vuln)
-            
-        except requests.exceptions.SSLError as e:
-            vulnerabilities.append({
-                'type': 'SSL_CERTIFICATE_ERROR',
-                'severity': 'HIGH',
-                'description': 'Error de certificado SSL/TLS',
-                'details': f'Error: {str(e)}',
-                'location': url,
-                'recommendation': 'Verificar y corregir la configuración SSL del servidor'
-            })
-            
-        except requests.exceptions.Timeout:
-            vulnerabilities.append({
-                'type': 'CONNECTION_TIMEOUT',
-                'severity': 'MEDIUM',
-                'description': 'Timeout al conectar con el servidor',
-                'location': url,
-                'recommendation': 'El servidor no respondió en el tiempo esperado. Verificar disponibilidad.'
-            })
-            
-        except requests.exceptions.RequestException as e:
-            vulnerabilities.append({
-                'type': 'CONNECTION_ERROR',
-                'severity': 'HIGH',
-                'description': f'Error al conectar con el sitio: {str(e)}',
-                'location': url,
-                'recommendation': 'Verificar que el sitio esté accesible y la URL sea correcta'
-            })
-        
-        scan_time = time.time() - start_time
-        
-        # Determinar estado general
-        status = 'SECURE'
-        if vulnerabilities:
-            # Verificar si hay vulnerabilidades críticas
-            critical_vulns = any(vuln['severity'] in ['HIGH', 'CRITICAL'] 
-                               for vuln in vulnerabilities)
-            status = 'CRITICAL' if critical_vulns else 'VULNERABLE'
-        
+            final_url = response.url
+            is_https = urlparse(final_url).scheme.lower() == "https"
+
+            findings.extend(self._core_header_findings(headers, is_https))
+            csp = self._check_csp_policy(headers)
+            if csp:
+                findings.append(csp)
+            if is_https:
+                hsts = self._check_hsts_policy(headers)
+                if hsts:
+                    findings.append(hsts)
+            findings.extend(self._check_version_disclosure(headers))
+        except requests.RequestException as exc:
+            # Connectivity/certificate failures are scanner errors, not evidence
+            # that the requested security header is missing.
+            error = f"No se pudieron evaluar los headers: {exc}"
+
+        status = "VULNERABLE" if findings else ("ERROR" if error else "SECURE")
+        headers = response.headers if response is not None else {}
         return {
-            'scanner_type': self.name,
-            'original_url': url,
-            'final_url': response.url if 'response' in locals() else url,
-            'scan_duration': round(scan_time, 2),
-            'vulnerabilities_found': len(vulnerabilities),
-            'vulnerabilities': vulnerabilities,
-            'status': status,
-            'timestamp': datetime.now().isoformat(),
-            'http_status': response.status_code if 'response' in locals() else 'N/A',
-            'server_info': headers.get('Server', 'No identificado') if 'response' in locals() else 'N/A'
+            "scanner_type": self.name,
+            "original_url": url,
+            "final_url": response.url if response is not None else url,
+            "scan_duration": round(time.time() - started, 2),
+            "vulnerabilities_found": len(findings),
+            "vulnerabilities": findings,
+            "status": status,
+            "timestamp": datetime.now().isoformat(),
+            "http_status": response.status_code if response is not None else "N/A",
+            "server_info": headers.get("Server", "No identificado"),
+            "error": error,
         }
 
-    def _check_header(self, header_name: str, headers: Dict, config: Dict) -> Dict:
-        """Verifica un header específico"""
-        if header_name not in headers:
-            return {
-                'type': 'MISSING_SECURITY_HEADER',
-                'severity': config['severity'],
-                'description': f'Falta header de seguridad: {header_name}',
-                'details': config['description'],
-                'location': 'HTTP Headers',
-                'recommendation': f'Agregar header {header_name} al servidor web. {config["description"]}'
-            }
-        
-        header_value = headers[header_name]
-        expected = config['expected']
-        
-        # Si hay valores esperados específicos, verificarlos
-        if expected and isinstance(expected, list):
-            if header_value not in expected:
-                return {
-                    'type': 'WEAK_SECURITY_HEADER',
-                    'severity': config['severity'],
-                    'description': f'Header {header_name} tiene valor débil: {header_value}',
-                    'details': f'Valores recomendados: {", ".join(expected)}. {config["description"]}',
-                    'location': 'HTTP Headers',
-                    'recommendation': f'Cambiar valor de {header_name} a uno más seguro. Valores recomendados: {", ".join(expected)}'
-                }
-        elif expected and isinstance(expected, str):
-            if header_value != expected:
-                return {
-                    'type': 'WEAK_SECURITY_HEADER',
-                    'severity': config['severity'],
-                    'description': f'Header {header_name} no tiene el valor recomendado',
-                    'details': f'Actual: {header_value}, Recomendado: {expected}. {config["description"]}',
-                    'location': 'HTTP Headers',
-                    'recommendation': f'Cambiar {header_name} a: {expected}. {config["description"]}'
-                }
-        
-        return None
+    def _core_header_findings(self, headers: Dict, is_https: bool) -> List[Dict]:
+        findings: list[Dict] = []
+        nosniff = headers.get("X-Content-Type-Options", "")
+        if nosniff.lower().strip() != "nosniff":
+            findings.append(self._missing_or_weak(
+                "X-Content-Type-Options", "LOW",
+                "Configurar X-Content-Type-Options: nosniff.",
+            ))
 
-    def _check_csp_policy(self, headers: Dict) -> Dict:
-        """Verificación especial para Content-Security-Policy"""
-        if 'Content-Security-Policy' not in headers:
-            return None
-            
-        csp_value = headers['Content-Security-Policy']
-        
-        # Detectar directivas inseguras
-        insecure_directives = []
-        
-        if 'unsafe-inline' in csp_value:
-            insecure_directives.append('unsafe-inline')
-        if 'unsafe-eval' in csp_value:
-            insecure_directives.append('unsafe-eval')
-        if "'self'" not in csp_value and 'none' not in csp_value.lower():
-            insecure_directives.append('missing self/none')
-            
-        if insecure_directives:
-            return {
-                'type': 'WEAK_CSP_POLICY',
-                'severity': 'MEDIUM',
-                'description': 'Content-Security-Policy contiene directivas inseguras',
-                'details': f'Directivas problemáticas: {", ".join(insecure_directives)}. CSP completo: {csp_value}',
-                'location': 'HTTP Headers',
-                'recommendation': 'Eliminar unsafe-inline y unsafe-eval. Usar nonces o hashes en su lugar. Incluir \'self\' para restringir al mismo origen.'
-            }
-            
-        return None
+        csp = headers.get("Content-Security-Policy", "")
+        frame_ancestors = re.search(r"(?:^|;)\s*frame-ancestors\s+[^;]+", csp, re.I)
+        x_frame = headers.get("X-Frame-Options", "").upper().strip()
+        if not frame_ancestors and x_frame not in {"DENY", "SAMEORIGIN"}:
+            findings.append(self._missing_or_weak(
+                "protección anti-clickjacking", "MEDIUM",
+                "Definir frame-ancestors en CSP o X-Frame-Options: DENY/SAMEORIGIN.",
+            ))
 
-    def _check_hsts_policy(self, headers: Dict) -> Dict:
-        """Verificación especial para Strict-Transport-Security"""
-        if 'Strict-Transport-Security' not in headers:
-            return None
-            
-        hsts_value = headers['Strict-Transport-Security']
-        
-        # Verificar max-age=0 (deshabilitado)
-        if 'max-age=0' in hsts_value:
-            return {
-                'type': 'WEAK_HSTS_POLICY',
-                'severity': 'HIGH',
-                'description': 'HSTS tiene max-age=0 (deshabilitado)',
-                'details': f'Valor HSTS: {hsts_value}',
-                'location': 'HTTP Headers',
-                'recommendation': 'Configurar max-age mínimo de 31536000 segundos (1 año). Eliminar max-age=0.'
-            }
-        
-        # Extraer y verificar max-age
-        match = re.search(r'max-age=(\d+)', hsts_value)
-        if match:
-            max_age = int(match.group(1))
-            
-            if max_age < 2592000:  # Menos de 30 días
-                return {
-                    'type': 'SHORT_HSTS_MAX_AGE',
-                    'severity': 'MEDIUM',
-                    'description': f'HSTS tiene max-age muy corto ({max_age} segundos)',
-                    'details': f'Recomendado mínimo: 2592000 segundos (30 días). Ideal: 31536000 (1 año). Valor actual: {hsts_value}',
-                    'location': 'HTTP Headers',
-                    'recommendation': 'Configurar max-age mínimo de 31536000 segundos (1 año) para mejor seguridad.'
-                }
-        
-        # Verificar si incluye includeSubDomains y preload
-        if 'includeSubDomains' not in hsts_value:
-            return {
-                'type': 'HSTS_MISSING_SUBDOMAINS',
-                'severity': 'LOW',
-                'description': 'HSTS no incluye includeSubDomains',
-                'details': 'Los subdominios no están protegidos por HSTS',
-                'location': 'HTTP Headers',
-                'recommendation': 'Agregar includeSubDomains al header HSTS para proteger todos los subdominios'
-            }
-            
-        return None
+        if not csp:
+            findings.append(self._missing_or_weak(
+                "Content-Security-Policy", "MEDIUM",
+                "Definir una CSP adaptada a los recursos reales de la aplicación.",
+            ))
 
-    def _check_dangerous_headers(self, headers: Dict) -> List[Dict]:
-        """Verifica headers que pueden revelar información sensible"""
-        dangerous = []
-        
-        # Headers que revelan información del servidor
-        sensitive_headers = {
-            'Server': 'Revela información del servidor web',
-            'X-Powered-By': 'Revela tecnología backend utilizada',
-            'X-AspNet-Version': 'Revela versión de ASP.NET',
-            'X-AspNetMvc-Version': 'Revela versión de ASP.NET MVC',
-            'X-PHP-Version': 'Revela versión de PHP',
-            'X-Runtime': 'Revela información del runtime (Ruby, etc)',
-            'X-Backend-Server': 'Revela información del backend',
-            'X-Generator': 'Revela tecnología de generación de contenido',
-            'X-Drupal-Cache': 'Revela uso de Drupal'
+        referrer = headers.get("Referrer-Policy", "").lower()
+        accepted = {"no-referrer", "same-origin", "strict-origin", "strict-origin-when-cross-origin"}
+        if not any(value in accepted for value in re.split(r"\s*,\s*", referrer) if value):
+            findings.append(self._missing_or_weak(
+                "Referrer-Policy", "LOW",
+                "Usar no-referrer, same-origin, strict-origin o strict-origin-when-cross-origin.",
+            ))
+
+        if is_https and "Strict-Transport-Security" not in headers:
+            findings.append(self._missing_or_weak(
+                "Strict-Transport-Security", "MEDIUM",
+                "Publicar HSTS sobre HTTPS con un max-age probado progresivamente.",
+            ))
+        return findings
+
+    @staticmethod
+    def _missing_or_weak(control: str, severity: str, recommendation: str) -> Dict:
+        return {
+            "type": "MISSING_OR_WEAK_SECURITY_HEADER",
+            "severity": severity,
+            "confidence": "high",
+            "description": f"Control HTTP ausente o débil: {control}",
+            "location": "HTTP Headers",
+            "evidence": f"La respuesta efectiva no contiene una configuración válida para {control}.",
+            "recommendation": recommendation,
         }
-        
-        for header, description in sensitive_headers.items():
-            if header in headers:
-                dangerous.append({
-                    'type': 'INFORMATION_DISCLOSURE',
-                    'severity': 'LOW',
-                    'description': f'Header revela información sensible: {header}',
-                    'details': f'{description}. Valor: {headers[header]}',
-                    'location': 'HTTP Headers',
-                    'recommendation': f'Remover o ocultar header {header} del servidor web'
-                })
-        
-        return dangerous
+
+    @staticmethod
+    def _check_csp_policy(headers: Dict) -> Optional[Dict]:
+        value = headers.get("Content-Security-Policy")
+        if not value:
+            return None
+        lower = value.lower()
+        problems: list[str] = []
+        has_nonce_or_hash = bool(re.search(r"'(?:nonce-[^']+|sha(?:256|384|512)-[^']+)'", lower))
+        if "'unsafe-eval'" in lower:
+            problems.append("unsafe-eval")
+        if "'unsafe-inline'" in lower and not has_nonce_or_hash:
+            problems.append("unsafe-inline sin nonce/hash")
+        if re.search(r"(?:^|;)\s*(?:default-src|script-src)\s+\*", lower):
+            problems.append("origen comodín para scripts")
+        if not problems:
+            return None
+        return {
+            "type": "WEAK_CSP_POLICY",
+            "severity": "MEDIUM",
+            "confidence": "high",
+            "description": "La política CSP permite ejecución de scripts con controles débiles.",
+            "location": "HTTP Headers",
+            "evidence": f"Directivas observadas: {', '.join(problems)}.",
+            "recommendation": "Eliminar unsafe-eval y sustituir inline scripts por nonces o hashes; restringir script-src.",
+        }
+
+    @staticmethod
+    def _check_hsts_policy(headers: Dict) -> Optional[Dict]:
+        value = headers.get("Strict-Transport-Security")
+        if not value:
+            return None
+        match = re.search(r"(?:^|;)\s*max-age\s*=\s*(\d+)", value, re.I)
+        if not match:
+            problem = "max-age ausente o inválido"
+        elif int(match.group(1)) == 0:
+            problem = "max-age=0 deshabilita HSTS"
+        elif int(match.group(1)) < 2_592_000:
+            problem = "max-age inferior a 30 días"
+        else:
+            return None
+        return {
+            "type": "WEAK_HSTS_POLICY",
+            "severity": "MEDIUM",
+            "confidence": "high",
+            "description": "La política HSTS no ofrece persistencia suficiente.",
+            "location": "HTTP Headers",
+            "evidence": problem,
+            "recommendation": "Aumentar max-age gradualmente hasta al menos 31536000 después de validar HTTPS.",
+        }
+
+    @staticmethod
+    def _check_version_disclosure(headers: Dict) -> List[Dict]:
+        findings: list[Dict] = []
+        for name in ("Server", "X-Powered-By", "X-AspNet-Version", "X-PHP-Version"):
+            value = headers.get(name)
+            if not value or not re.search(r"\d+(?:\.\d+)+", value):
+                continue
+            findings.append({
+                "type": "SOFTWARE_VERSION_DISCLOSURE",
+                "severity": "LOW",
+                "confidence": "high",
+                "description": f"El header {name} expone una versión concreta de software.",
+                "location": "HTTP Headers",
+                "evidence": f"{name}: {value[:120]}",
+                "recommendation": f"Ocultar el detalle de versión del header {name} cuando sea posible.",
+            })
+        return findings
 
     def get_scan_summary(self, result: Dict) -> str:
-        """Genera un resumen legible del escaneo"""
-        summary = [
-            f"🔍 Security Headers Scan Summary",
-            f"📋 URL: {result['original_url']}",
-            f"🔗 Final URL: {result.get('final_url', 'N/A')}",
-            f"⏱️  Duración: {result['scan_duration']}s",
-            f"📊 Estado: {result['status']}",
-            f"⚠️  Vulnerabilidades: {result['vulnerabilities_found']}",
-            f"🖥️  Servidor: {result.get('server_info', 'N/A')}",
-            f"📅 Fecha: {result['timestamp']}",
-            "",
-            "📋 VULNERABILIDADES ENCONTRADAS:"
-        ]
-        
-        for i, vuln in enumerate(result['vulnerabilities'], 1):
-            severity_emoji = {
-                'CRITICAL': '🔥',
-                'HIGH': '🚨',
-                'MEDIUM': '⚠️',
-                'LOW': 'ℹ️'
-            }.get(vuln['severity'], '❓')
-            
-            summary.append(
-                f"{i}. {severity_emoji} [{vuln['severity']}] {vuln['description']}"
-            )
-        
-        return "\n".join(summary)
-
-# Ejemplo de uso
-if __name__ == "__main__":
-    # Ejemplo rápido de uso
-    scanner = SecurityHeadersScanner()
-    
-    # Escanear un sitio
-    resultado = scanner.scan("https://httpbin.org/headers")
-    
-    # Imprimir resumen
-    print(scanner.get_scan_summary(resultado))
-    
-    # Mostrar detalles completos
-    print(f"\n📄 Detalles completos:")
-    for vuln in resultado['vulnerabilities']:
-        print(f"\n{vuln['description']}")
-        print(f"   Recomendación: {vuln['recommendation']}")
+        return (
+            f"Security Headers: {result['original_url']}\n"
+            f"Estado: {result['status']}\n"
+            f"Hallazgos: {result['vulnerabilities_found']}"
+        )

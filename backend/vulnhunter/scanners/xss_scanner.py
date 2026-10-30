@@ -1,36 +1,42 @@
-# scanners/xss_scanner.py
+"""Conservative reflected-XSS checks.
+
+Plain text reflection is not proof of XSS. A finding is emitted only when the
+injected marker is parsed back as an event-bearing HTML element.
+"""
+
+from __future__ import annotations
+
+import time
+import uuid
+from typing import Dict, List, Optional
+from urllib.parse import parse_qsl, urlencode, urljoin, urlparse, urlunparse
+
 import requests
 from bs4 import BeautifulSoup
-from urllib.parse import urljoin, urlparse
-import re
-import time
-from typing import List, Dict, Optional
+
 
 class XSSScanner:
-    def __init__(self):
+    def __init__(self) -> None:
         self.session = requests.Session()
-        self.session.headers.update({
-            'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
-        })
+        self.session.headers.update(
+            {"User-Agent": "VulnHunter/0.1 (authorized security assessment)"}
+        )
 
-        # Payloads de XSS para probar
-        self.xss_payloads = [
-            '<script>alert("XSS")</script>',
-            '"><script>alert("XSS")</script>',
-            "';alert('XSS');//",
-            '<img src=x onerror=alert("XSS")>',
-            '<svg onload=alert("XSS")>',
-            '"><img src=x onerror=alert("XSS")>',
-            "javascript:alert('XSS')",
-            '<iframe src="javascript:alert(\'XSS\')"></iframe>'
-        ]
+    @staticmethod
+    def _payload(token: str) -> str:
+        return f'\"><svg data-vh-token="{token}" onload="alert(\'{token}\')">'
+
+    @staticmethod
+    def _has_executable_injection(html: str, token: str) -> bool:
+        soup = BeautifulSoup(html, "html.parser")
+        for element in soup.find_all(attrs={"data-vh-token": token}):
+            for attribute, value in element.attrs.items():
+                if attribute.lower().startswith("on") and token in str(value):
+                    return True
+        return False
 
     def scan_url(self, target_url: str) -> Dict:
-        """
-        Escanea una URL buscando vulnerabilidades XSS
-        """
-        print(f"🔍 Iniciando escaneo XSS para: {target_url}")
-
+        started = time.time()
         results = {
             "url": target_url,
             "vulnerable": False,
@@ -38,225 +44,102 @@ class XSSScanner:
             "forms_found": 0,
             "params_tested": 0,
             "scan_time": None,
-            "error": None
+            "error": None,
         }
-
-        start_time = time.time()
-
         try:
-            # 1. Obtener la página principal
             response = self.session.get(target_url, timeout=10)
-            if response.status_code != 200:
-                results["error"] = f"No se pudo acceder a la URL. Código: {response.status_code}"
-                return results
-
-            soup = BeautifulSoup(response.text, 'html.parser')
-
-            # 2. Buscar formularios en la página
-            forms = soup.find_all('form')
+            response.raise_for_status()
+            soup = BeautifulSoup(response.text, "html.parser")
+            forms = soup.find_all("form")
             results["forms_found"] = len(forms)
 
-            print(f"📋 Formularios encontrados: {len(forms)}")
-
-            # 3. Probar XSS en formularios
             for form in forms:
-                vuln_found = self._test_form_xss(target_url, form)
-                if vuln_found:
-                    results["vulnerabilities"].append(vuln_found)
-                    results["vulnerable"] = True
+                finding, tested = self._test_form_xss(target_url, form)
+                results["params_tested"] += tested
+                if finding:
+                    results["vulnerabilities"].append(finding)
 
-            # 4. Probar XSS en parámetros GET
-            get_vuln = self._test_get_parameters_xss(target_url)
-            if get_vuln:
-                results["vulnerabilities"].extend(get_vuln)
-                results["vulnerable"] = True
+            findings, tested = self._test_existing_get_parameters(target_url)
+            results["params_tested"] += tested
+            results["vulnerabilities"].extend(findings)
+            results["vulnerable"] = bool(results["vulnerabilities"])
+        except requests.RequestException as exc:
+            results["error"] = f"Error de conexión: {exc}"
+        except Exception as exc:
+            results["error"] = f"Error inesperado: {exc}"
 
-            # 5. Buscar XSS reflejado en la página actual
-            reflected_vuln = self._test_reflected_xss(target_url, response.text)
-            if reflected_vuln:
-                results["vulnerabilities"].append(reflected_vuln)
-                results["vulnerable"] = True
-
-        except requests.RequestException as e:
-            results["error"] = f"Error de conexión: {str(e)}"
-        except Exception as e:
-            results["error"] = f"Error inesperado: {str(e)}"
-
-        results["scan_time"] = round(time.time() - start_time, 2)
-
-        # Mostrar resultados
-        if results["vulnerable"]:
-            print(f"🚨 ¡VULNERABILIDAD XSS ENCONTRADA!")
-            print(f"   Vulnerabilidades: {len(results['vulnerabilities'])}")
-        else:
-            print(f"✅ No se encontraron vulnerabilidades XSS")
-
-        print(f"⏱️  Tiempo de escaneo: {results['scan_time']} segundos")
-
+        results["scan_time"] = round(time.time() - started, 2)
         return results
 
-    def _test_form_xss(self, base_url: str, form) -> Optional[Dict]:
-        """
-        Prueba XSS en un formulario específico
-        """
-        try:
-            # Obtener información del formulario
-            action = form.get('action', '')
-            method = form.get('method', 'get').lower()
+    def _test_form_xss(self, base_url: str, form) -> tuple[Optional[Dict], int]:
+        action_url = urljoin(base_url, form.get("action", ""))
+        if urlparse(action_url).netloc != urlparse(base_url).netloc:
+            return None, 0
 
-            # Construir URL completa
-            form_url = urljoin(base_url, action)
+        method = form.get("method", "get").lower()
+        if method not in {"get", "post"}:
+            return None, 0
 
-            # Obtener todos los campos del formulario
-            inputs = form.find_all(['input', 'textarea', 'select'])
-            form_data = {}
+        form_data: dict[str, str] = {}
+        testable: list[str] = []
+        for field in form.find_all(["input", "textarea", "select"]):
+            name = field.get("name")
+            if not name:
+                continue
+            field_type = field.get("type", "text").lower()
+            if field_type in {"submit", "button", "file", "password", "reset"}:
+                continue
+            form_data[name] = field.get("value", "test")
+            if field_type != "hidden":
+                testable.append(name)
 
-            for input_field in inputs:
-                name = input_field.get('name')
-                if name:
-                    input_type = input_field.get('type', 'text').lower()
+        tested = 0
+        for field_name in testable:
+            token = f"vhxss{uuid.uuid4().hex}"
+            data = dict(form_data)
+            data[field_name] = self._payload(token)
+            try:
+                if method == "post":
+                    response = self.session.post(action_url, data=data, timeout=10)
+                else:
+                    response = self.session.get(action_url, params=data, timeout=10)
+                tested += 1
+                if self._has_executable_injection(response.text, token):
+                    return self._finding(response.url, field_name, method.upper(), token), tested
+            except requests.RequestException:
+                continue
+        return None, tested
 
-                    # Asignar valores por defecto según el tipo
-                    if input_type in ['text', 'search', 'email', 'url']:
-                        form_data[name] = 'test_value'
-                    elif input_type == 'hidden':
-                        form_data[name] = input_field.get('value', '')
-                    elif input_type in ['submit', 'button']:
-                        continue
-                    else:
-                        form_data[name] = 'test'
+    def _test_existing_get_parameters(self, target_url: str) -> tuple[List[Dict], int]:
+        """Test existing parameters only; guessed parameters inflate false positives."""
+        parsed = urlparse(target_url)
+        existing = parse_qsl(parsed.query, keep_blank_values=True)
+        findings: list[Dict] = []
+        tested = 0
+        for index, (name, _value) in enumerate(existing):
+            token = f"vhxss{uuid.uuid4().hex}"
+            params = list(existing)
+            params[index] = (name, self._payload(token))
+            test_url = urlunparse(parsed._replace(query=urlencode(params)))
+            try:
+                response = self.session.get(test_url, timeout=10)
+                tested += 1
+                if self._has_executable_injection(response.text, token):
+                    findings.append(self._finding(response.url, name, "GET", token))
+            except requests.RequestException:
+                continue
+        return findings, tested
 
-            print(f"🧪 Probando formulario en: {form_url}")
-            print(f"   Campos encontrados: {list(form_data.keys())}")
-
-            # Probar cada payload en cada campo
-            for field_name in form_data:
-                for payload in self.xss_payloads:
-                    test_data = form_data.copy()
-                    test_data[field_name] = payload
-
-                    try:
-                        if method == 'post':
-                            response = self.session.post(form_url, data=test_data, timeout=10)
-                        else:
-                            response = self.session.get(form_url, params=test_data, timeout=10)
-
-                        # Verificar si el payload se refleja sin escape
-                        if payload in response.text:
-                            print(f"🚨 XSS encontrado en formulario!")
-                            return {
-                                "type": "Reflected XSS in Form",
-                                "location": form_url,
-                                "field": field_name,
-                                "payload": payload,
-                                "method": method.upper(),
-                                "severity": "High"
-                            }
-
-                    except requests.RequestException:
-                        continue
-
-                    # Pequeña pausa para no saturar el servidor
-                    time.sleep(0.1)
-
-        except Exception as e:
-            print(f"❌ Error probando formulario: {e}")
-
-        return None
-
-    def _test_get_parameters_xss(self, target_url: str) -> List[Dict]:
-        """
-        Prueba XSS en parámetros GET comunes
-        """
-        vulnerabilities = []
-
-        # Parámetros comunes para probar
-        common_params = ['q', 'search', 'query', 'name', 'email', 'message', 'text', 'input']
-
-        print(f"🧪 Probando parámetros GET comunes...")
-
-        for param in common_params:
-            for payload in self.xss_payloads[:3]:  # Solo los primeros 3 payloads para ser más rápido
-                try:
-                    test_url = f"{target_url}?{param}={payload}"
-                    response = self.session.get(test_url, timeout=10)
-
-                    if payload in response.text:
-                        print(f"🚨 XSS encontrado en parámetro GET!")
-                        vulnerabilities.append({
-                            "type": "Reflected XSS in URL Parameter",
-                            "location": test_url,
-                            "parameter": param,
-                            "payload": payload,
-                            "method": "GET",
-                            "severity": "High"
-                        })
-                        break  # No probar más payloads en este parámetro
-
-                except requests.RequestException:
-                    continue
-
-                time.sleep(0.1)
-
-        return vulnerabilities
-
-    def _test_reflected_xss(self, target_url: str, page_content: str) -> Optional[Dict]:
-        """
-        Busca patrones de XSS reflejado en el contenido de la página
-        """
-        # Patrones peligrosos que indican posible XSS
-        dangerous_patterns = [
-            r'<script[^>]*>.*?</script>',
-            r'javascript:',
-            r'on\w+\s*=',
-            r'<iframe[^>]*src\s*=\s*["\']javascript:',
-        ]
-
-        for pattern in dangerous_patterns:
-            if re.search(pattern, page_content, re.IGNORECASE):
-                print(f"⚠️  Patrón peligroso encontrado en la página")
-                return {
-                    "type": "Potential XSS Pattern",
-                    "location": target_url,
-                    "pattern": pattern,
-                    "severity": "Medium",
-                    "description": "Se encontró un patrón que podría indicar vulnerabilidad XSS"
-                }
-
-        return None
-
-# Función de prueba para usar el scanner
-def test_scanner():
-    scanner = XSSScanner()
-
-    # URLs de prueba (sitios seguros para testing)
-    test_urls = [
-        "http://testphp.vulnweb.com/",  # Sitio de pruebas seguro
-        "https://xss-game.appspot.com/level1/frame",  # Juego de XSS para aprender
-    ]
-
-    for url in test_urls:
-        print(f"\n{'='*60}")
-        print(f"PROBANDO: {url}")
-        print(f"{'='*60}")
-
-        result = scanner.scan_url(url)
-
-        if result["error"]:
-            print(f"❌ Error: {result['error']}")
-        else:
-            print(f"📊 RESUMEN:")
-            print(f"   - Formularios encontrados: {result['forms_found']}")
-            print(f"   - Vulnerable: {'SÍ' if result['vulnerable'] else 'NO'}")
-            print(f"   - Vulnerabilidades: {len(result['vulnerabilities'])}")
-            print(f"   - Tiempo: {result['scan_time']}s")
-
-            if result["vulnerabilities"]:
-                print(f"\n🚨 DETALLES DE VULNERABILIDADES:")
-                for i, vuln in enumerate(result["vulnerabilities"], 1):
-                    print(f"   {i}. {vuln['type']}")
-                    print(f"      Ubicación: {vuln['location']}")
-                    print(f"      Severidad: {vuln['severity']}")
-
-if __name__ == "__main__":
-    test_scanner()
+    @staticmethod
+    def _finding(location: str, field: str, method: str, token: str) -> Dict:
+        return {
+            "type": "REFLECTED_XSS",
+            "location": location,
+            "field": field,
+            "method": method,
+            "severity": "HIGH",
+            "confidence": "high",
+            "evidence": f"El marcador {token} fue interpretado como un elemento SVG con manejador onload.",
+            "description": "La entrada controlada fue reflejada en un contexto HTML ejecutable.",
+            "recommendation": "Codificar la salida según su contexto y aplicar una CSP restrictiva como defensa adicional.",
+        }
