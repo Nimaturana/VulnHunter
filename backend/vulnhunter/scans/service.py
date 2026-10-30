@@ -566,7 +566,10 @@ class ScanService:
         normalized: list[Finding] = []
         for raw in result.get("vulnerabilities", []):
             severity = str(raw.get("severity", "LOW")).upper()
-            confidence = "medium" if raw.get("evidence") or raw.get("payload") else "low"
+            confidence = str(
+                raw.get("confidence")
+                or ("medium" if raw.get("evidence") or raw.get("payload") else "low")
+            ).lower()
             normalized.append(
                 Finding(
                     type=str(raw.get("type", "Unknown finding")),

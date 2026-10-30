@@ -1,360 +1,216 @@
-# scanners/directory_scanner.py
-import requests
-from typing import Dict, List
+"""Evidence-based checks for accidentally exposed sensitive files."""
+
+from __future__ import annotations
+
+import re
 import time
+import uuid
 from datetime import datetime
+from difflib import SequenceMatcher
+from typing import Dict, List, Optional
 from urllib.parse import urljoin, urlparse
 
+import requests
+
+
 class DirectoryScanner:
-    def __init__(self, timeout: int = 5, max_retries: int = 2):
-        self.name = "directory_traversal"
-        self.description = "Detecta archivos y directorios sensibles expuestos"
+    def __init__(self, timeout: int = 5, max_retries: int = 2) -> None:
+        self.name = "sensitive_file_exposure"
+        self.description = "Detecta archivos sensibles expuestos con evidencia de contenido"
         self.timeout = timeout
         self.max_retries = max_retries
-        
-        # Headers personalizados
         self.headers = {
-            'User-Agent': 'SecurityScanner/2.0 (Directory Traversal Audit)',
-            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-            'Accept-Language': 'en-US,en;q=0.5',
-            'Accept-Encoding': 'gzip, deflate',
-            'Connection': 'close'
+            "User-Agent": "VulnHunter/0.1 (authorized security assessment)",
+            "Accept": "*/*",
+            "Connection": "close",
         }
-        
         self.session = requests.Session()
-        
-        # Archivos y directorios sensibles expandidos
+        # Login/admin pages, robots.txt, package manifests and API docs are not
+        # vulnerabilities by themselves and intentionally are not included.
         self.sensitive_paths = [
-            # Archivos de configuración
-            '.env', '.env.production', '.env.local', '.env.example',
-            'config.php', 'wp-config.php', 'configuration.php',
-            'database.yml', 'database.yaml', 'settings.py', 'app.config',
-            'config.json', 'config.ini', 'appsettings.json',
-            '.htaccess', '.htpasswd', 'web.config',
-            
-            # Backups y temporales
-            'backup.sql', 'dump.sql', 'database.sql', 'backup.zip',
-            'site.zip', 'backup.tar.gz', '.bak', '.backup', '.old', '.tmp',
-            
-            # Directorios administrativos
-            'admin/', 'administrator/', 'wp-admin/', 'panel/', 'cpanel/',
-            'phpmyadmin/', 'adminer/', 'wp-login.php', 'install.php',
-            
-            # Información del servidor
-            'phpinfo.php', 'info.php', 'test.php', 'server-info', 'server-status',
-            
-            # Archivos de log
-            'error.log', 'access.log', 'application.log', 'debug.log',
-            
-            # Archivos de desarrollo
-            '.git/', '.svn/', '.idea/', '.vscode/',
-            'composer.json', 'package.json', 'requirements.txt',
-            'readme.txt', 'README.md', 'CHANGELOG.md',
-            
-            # Cloud y servicios
-            'aws/credentials', '.s3cfg', '.git-credentials',
-            
-            # Archivos de despliegue
-            'docker-compose.yml', 'Dockerfile', 'dockerfile',
-            
-            # Archivos de API
-            'swagger.json', 'openapi.json', 'api.json',
-            
-            # Archivos de test
-            'test.php', 'test.py', 'test.js'
+            ".env", ".env.production", ".env.local",
+            "config.php", "wp-config.php", "configuration.php",
+            "database.yml", "database.yaml", "settings.py", "appsettings.json",
+            ".htpasswd", "backup.sql", "dump.sql", "database.sql",
+            "backup.zip", "site.zip", "backup.tar.gz",
+            "phpinfo.php", "info.php", "server-status",
+            "error.log", "application.log", "debug.log",
+            ".git/config", ".svn/entries", "aws/credentials", ".git-credentials",
+            "docker-compose.yml", "Dockerfile",
         ]
 
     def scan(self, url: str) -> Dict:
-        """Escanea directorios y archivos sensibles"""
-        start_time = time.time()
-        vulnerabilities = []
-        
+        started = time.time()
+        vulnerabilities: list[Dict] = []
+        error: Optional[str] = None
+        parsed = urlparse(url)
+        base_url = f"{parsed.scheme}://{parsed.netloc}/"
+
         try:
-            # Normalizar URL base
-            parsed_url = urlparse(url)
-            base_url = f"{parsed_url.scheme}://{parsed_url.netloc}"
-            
-            # Verificar cada ruta sensible
+            baseline_url = urljoin(base_url, f".vulnhunter-not-found-{uuid.uuid4().hex}")
+            baseline = self.session.get(
+                baseline_url,
+                timeout=self.timeout,
+                allow_redirects=False,
+                headers=self.headers,
+            )
             for path in self.sensitive_paths:
-                vulnerability = self._check_path(base_url, path)
-                if vulnerability:
-                    vulnerabilities.append(vulnerability)
-            
-            # Verificar patrones adicionales
-            additional_vulns = self._check_additional_patterns(base_url)
-            vulnerabilities.extend(additional_vulns)
-            
-        except Exception as e:
-            vulnerabilities.append({
-                'type': 'DIRECTORY_SCAN_ERROR',
-                'severity': 'LOW',
-                'description': f'Error durante escaneo de directorios: {str(e)}',
-                'location': url,
-                'recommendation': 'Verificar accesibilidad del sitio'
-            })
-        
-        scan_time = time.time() - start_time
-        
-        # Determinar estado
-        status = 'SECURE'
-        if vulnerabilities:
-            critical_vulns = any(vuln['severity'] in ['CRITICAL', 'HIGH'] 
-                               for vuln in vulnerabilities)
-            status = 'CRITICAL' if critical_vulns else 'VULNERABLE'
-        
+                finding = self._check_path(base_url, path, baseline)
+                if finding:
+                    vulnerabilities.append(finding)
+            listing = self._check_directory_listing(base_url)
+            if listing:
+                vulnerabilities.append(listing)
+        except requests.RequestException as exc:
+            error = f"No se pudo completar el escaneo de archivos sensibles: {exc}"
+
+        status = "VULNERABLE" if vulnerabilities else ("ERROR" if error else "SECURE")
         return {
-            'scanner_type': self.name,
-            'url': url,
-            'scan_duration': round(scan_time, 2),
-            'vulnerabilities_found': len(vulnerabilities),
-            'vulnerabilities': vulnerabilities,
-            'status': status,
-            'timestamp': datetime.now().isoformat()
+            "scanner_type": self.name,
+            "url": url,
+            "scan_duration": round(time.time() - started, 2),
+            "vulnerabilities_found": len(vulnerabilities),
+            "vulnerabilities": vulnerabilities,
+            "status": status,
+            "timestamp": datetime.now().isoformat(),
+            "error": error,
         }
 
-    def _check_path(self, base_url: str, path: str) -> Dict:
-        """Verifica si una ruta específica está accesible"""
+    def _check_path(self, base_url: str, path: str, baseline) -> Optional[Dict]:
+        full_url = urljoin(base_url, path)
         for attempt in range(self.max_retries):
             try:
-                full_url = urljoin(base_url, path)
                 response = self.session.get(
-                    full_url, 
-                    timeout=self.timeout, 
+                    full_url,
+                    timeout=self.timeout,
                     allow_redirects=False,
-                    headers=self.headers
+                    headers=self.headers,
                 )
-                
-                # Si responde con 200, está accesible
-                if response.status_code == 200:
-                    severity = self._determine_severity(path, response)
-                    return {
-                        'type': 'SENSITIVE_FILE_EXPOSED',
-                        'severity': severity,
-                        'description': f'Archivo/directorio sensible accesible: {path}',
-                        'location': full_url,
-                        'details': f'Código de respuesta: {response.status_code}, Tamaño: {len(response.content)} bytes',
-                        'recommendation': self._get_recommendation(path)
-                    }
-                
-                # Algunos servidores responden 403 pero el archivo existe
-                elif response.status_code == 403 and self._is_critical_file(path):
-                    return {
-                        'type': 'SENSITIVE_FILE_FORBIDDEN',
-                        'severity': 'MEDIUM',
-                        'description': f'Archivo sensible existe pero está protegido: {path}',
-                        'location': full_url,
-                        'details': 'Archivo existe pero retorna 403 Forbidden',
-                        'recommendation': 'Verificar que el archivo no debería estar presente en el directorio web'
-                    }
-                    
+                if response.status_code != 200:
+                    return None
+                if self._looks_like_soft_404(response, baseline):
+                    return None
+                evidence = self._content_evidence(path, response)
+                if not evidence:
+                    return None
+                return {
+                    "type": "SENSITIVE_FILE_EXPOSED",
+                    "severity": self._determine_severity(path, evidence),
+                    "confidence": "high",
+                    "description": f"Archivo sensible expuesto con contenido corroborado: {path}",
+                    "location": full_url,
+                    "evidence": evidence,
+                    "details": f"HTTP 200; tipo de contenido: {response.headers.get('Content-Type', 'desconocido')}",
+                    "recommendation": self._get_recommendation(path),
+                }
             except requests.RequestException:
-                if attempt == self.max_retries - 1:
-                    pass  # Último intento falló
-                time.sleep(0.5)  # Pequeño delay entre reintentos
-                
+                if attempt + 1 < self.max_retries:
+                    time.sleep(0.2)
         return None
 
-    def _check_additional_patterns(self, base_url: str) -> List[Dict]:
-        """Verifica patrones adicionales de exposición"""
-        vulnerabilities = []
-        
+    @classmethod
+    def _looks_like_soft_404(cls, response, baseline) -> bool:
+        if response.status_code != baseline.status_code:
+            return False
+        left = cls._normalize_body(response.text)
+        right = cls._normalize_body(baseline.text)
+        if not left or not right:
+            return False
+        same_type = response.headers.get("Content-Type", "").split(";", 1)[0] == baseline.headers.get(
+            "Content-Type", ""
+        ).split(";", 1)[0]
+        return same_type and SequenceMatcher(None, left, right).ratio() >= 0.90
+
+    @staticmethod
+    def _normalize_body(body: str) -> str:
+        body = re.sub(r"[0-9a-f]{16,}", "<token>", body.lower())
+        body = re.sub(r"\d+", "<n>", body)
+        return re.sub(r"\s+", " ", body).strip()[:100_000]
+
+    @staticmethod
+    def _content_evidence(path: str, response) -> Optional[str]:
+        lower_path = path.lower()
+        text = response.text[:500_000]
+        lower = text.lower()
+        raw = response.content[:8]
+
+        if lower_path.endswith((".zip", ".tar.gz")):
+            if raw.startswith(b"PK\x03\x04") or raw.startswith(b"\x1f\x8b"):
+                return "La respuesta contiene la firma binaria de un archivo comprimido."
+            return None
+        if ".env" in lower_path:
+            return "Formato KEY=VALUE detectado." if re.search(r"(?m)^[A-Z][A-Z0-9_]{2,}\s*=", text) else None
+        if lower_path.endswith(".sql"):
+            return "Sentencias SQL detectadas." if re.search(r"(?i)\b(create\s+table|insert\s+into|pg_dump|mysqldump)\b", text) else None
+        if lower_path == ".git/config":
+            return "Metadatos de repositorio Git detectados." if "[core]" in lower and "repositoryformatversion" in lower else None
+        if lower_path == ".svn/entries":
+            return "Metadatos de Subversion detectados." if ("svn" in lower or "dir\n" in lower) else None
+        if "credentials" in lower_path or lower_path.endswith(".htpasswd"):
+            patterns = [r"(?m)^\[[^]]+\]", r"(?m)^aws_access_key_id\s*=", r"(?m)^[^:\s]+:\$[0-9a-z]+\$"]
+            return "Formato de credenciales detectado." if any(re.search(p, text, re.I) for p in patterns) else None
+        if lower_path.endswith((".php", ".py", ".yml", ".yaml", ".json")) or "config" in lower_path:
+            config_words = sum(word in lower for word in ("password", "database", "secret", "api_key", "db_host"))
+            return "Contenido de configuración sensible detectado." if config_words >= 2 else None
+        if lower_path.endswith(".log"):
+            return "Formato de log o stack trace detectado." if re.search(r"(?i)(traceback|exception|\berror\b|\d{4}-\d{2}-\d{2})", text) else None
+        if "phpinfo" in lower_path or lower_path == "info.php":
+            return "Salida de phpinfo() detectada." if "php version" in lower and "phpinfo()" in lower else None
+        if lower_path == "server-status":
+            return "Página de estado de Apache detectada." if "apache server status" in lower else None
+        if lower_path.endswith("docker-compose.yml"):
+            return "Manifiesto Docker Compose detectado." if re.search(r"(?m)^services\s*:", text) else None
+        if lower_path.endswith("dockerfile"):
+            return "Dockerfile detectado." if re.search(r"(?mi)^from\s+\S+", text) else None
+        return None
+
+    def _check_directory_listing(self, base_url: str) -> Optional[Dict]:
         try:
-            # Verificar listado de directorios con múltiples patrones
             response = self.session.get(base_url, timeout=self.timeout, headers=self.headers)
+            if response.status_code != 200:
+                return None
             content = response.text.lower()
-            
-            directory_listing_patterns = [
-                'index of /', 'directory listing for', 'parent directory',
-                'last modified', 'size', 'name', '<dir>', 'To Parent Directory'
-            ]
-            
-            if any(pattern in content for pattern in directory_listing_patterns):
-                vulnerabilities.append({
-                    'type': 'DIRECTORY_LISTING_ENABLED',
-                    'severity': 'HIGH',
-                    'description': 'Listado de directorios habilitado',
-                    'location': base_url,
-                    'details': f'Código de respuesta: {response.status_code}',
-                    'recommendation': 'Deshabilitar listado de directorios en la configuración del servidor web'
-                })
-            
-            # Verificar robots.txt
-            robots_url = urljoin(base_url, 'robots.txt')
-            robots_response = self.session.get(robots_url, timeout=self.timeout, headers=self.headers)
-            
-            if robots_response.status_code == 200:
-                robots_content = robots_response.text.lower()
-                sensitive_patterns = [
-                    'admin', 'private', 'secret', 'config', 'database',
-                    'backup', 'install', 'setup', 'wp-admin', 'phpmyadmin'
-                ]
-                
-                found_patterns = [
-                    pattern for pattern in sensitive_patterns 
-                    if pattern in robots_content
-                ]
-                
-                if found_patterns:
-                    vulnerabilities.append({
-                        'type': 'SENSITIVE_INFO_IN_ROBOTS',
-                        'severity': 'MEDIUM',
-                        'description': 'robots.txt revela rutas sensibles',
-                        'details': f'Patrones encontrados: {", ".join(found_patterns)}',
-                        'location': robots_url,
-                        'recommendation': 'Revisar y limpiar robots.txt de información sensible'
-                    })
-                    
-            # Verificar sitemap.xml
-            sitemap_url = urljoin(base_url, 'sitemap.xml')
-            sitemap_response = self.session.get(sitemap_url, timeout=self.timeout, headers=self.headers)
-            
-            if sitemap_response.status_code == 200:
-                sitemap_content = sitemap_response.text.lower()
-                if 'admin' in sitemap_content or 'config' in sitemap_content:
-                    vulnerabilities.append({
-                        'type': 'SENSITIVE_INFO_IN_SITEMAP',
-                        'severity': 'LOW',
-                        'description': 'sitemap.xml contiene rutas sensibles',
-                        'location': sitemap_url,
-                        'recommendation': 'Remover rutas administrativas del sitemap.xml'
-                    })
-                        
+            strong_signals = (
+                "<title>index of /" in content
+                and "parent directory" in content
+                and ("last modified" in content or "directory listing for" in content)
+            )
+            if not strong_signals:
+                return None
+            return {
+                "type": "DIRECTORY_LISTING_ENABLED",
+                "severity": "MEDIUM",
+                "confidence": "high",
+                "description": "El servidor publica un índice de archivos del directorio raíz.",
+                "location": base_url,
+                "evidence": "Se observaron conjuntamente título Index of, Parent Directory y columnas de listado.",
+                "recommendation": "Deshabilitar el listado de directorios en el servidor web.",
+            }
         except requests.RequestException:
-            pass
-            
-        return vulnerabilities
+            return None
 
-    def _determine_severity(self, path: str, response) -> str:
-        """Determina la severidad basada en el tipo de archivo y contenido"""
-        path_lower = path.lower()
-        
-        # Archivos CRITICAL
-        critical_patterns = ['.env', 'config', 'database', 'backup', '.sql', 'credentials', 'secret']
-        
-        # Archivos HIGH
-        high_patterns = ['admin', 'phpinfo', '.git', '.htpasswd', 'wp-config', 'install', 'login']
-        
-        # Archivos MEDIUM
-        medium_patterns = ['log', 'readme', 'composer', 'package', 'docker', 'test']
-        
-        # Verificar contenido para archivos críticos
-        if any(pattern in path_lower for pattern in critical_patterns):
-            content = response.text if hasattr(response, 'text') else str(response.content)
-            if any(keyword in content.lower() for keyword in ['password', 'secret', 'key', 'token']):
-                return 'CRITICAL'
-            return 'HIGH'
-        
-        if any(pattern in path_lower for pattern in high_patterns):
-            return 'HIGH'
-        
-        if any(pattern in path_lower for pattern in medium_patterns):
-            return 'MEDIUM'
-        
-        return 'LOW'
+    @staticmethod
+    def _determine_severity(path: str, evidence: str) -> str:
+        path = path.lower()
+        if path.endswith(".sql"):
+            return "CRITICAL"
+        if any(value in path for value in (".env", "credentials", ".htpasswd", "backup", "config", ".git", "phpinfo", "server-status")):
+            return "HIGH"
+        return "LOW"
 
-    def _is_critical_file(self, path: str) -> bool:
-        """Determina si un archivo es crítico aunque esté protegido"""
-        critical_files = ['.env', 'config.php', 'wp-config.php', 'database.yml', 'credentials']
-        return any(critical in path.lower() for critical in critical_files)
-
-    def _get_recommendation(self, path: str) -> str:
-        """Devuelve recomendación específica según el tipo de archivo"""
-        recommendations = {
-            '.env': 'Mover archivo .env fuera del directorio web público. Usar variables de entorno del sistema.',
-            'config': 'Mover archivos de configuración fuera del directorio público. Usar permisos restrictivos (600).',
-            'backup': 'Eliminar archivos de backup del directorio web. Implementar backups automatizados en ubicación segura.',
-            'admin': 'Implementar autenticación robusta (2FA), rate limiting, y IP whitelisting para paneles administrativos.',
-            '.git': 'Eliminar directorio .git del servidor de producción. Verificar que no se suba accidentalmente.',
-            'phpinfo': 'Eliminar archivos phpinfo.php. Usar solo en entornos de desarrollo.',
-            'log': 'Mover archivos de log fuera del webroot. Configurar el servidor para que no sirva archivos .log.',
-            'database': 'Nunca almacenar archivos de base de datos en el webroot. Usar sistemas de base de datos properos.'
-        }
-        
-        path_lower = path.lower()
-        for pattern, recommendation in recommendations.items():
-            if pattern in path_lower:
-                return recommendation
-        
-        return 'Implementar medidas de seguridad apropiadas: permisos restrictivos, autenticación, o remover el archivo.'
+    @staticmethod
+    def _get_recommendation(path: str) -> str:
+        if ".git" in path.lower():
+            return "Excluir el directorio .git del despliegue y bloquear su acceso desde el servidor web."
+        if ".env" in path.lower() or "credentials" in path.lower():
+            return "Retirar las credenciales del webroot, rotarlas y almacenarlas en un gestor de secretos."
+        if "backup" in path.lower() or path.lower().endswith(".sql"):
+            return "Eliminar el respaldo del webroot y conservarlo en almacenamiento privado cifrado."
+        return "Retirar el archivo del webroot o denegar explícitamente su publicación."
 
     def get_scan_summary(self, result: Dict) -> str:
-        """Genera un resumen legible del escaneo"""
-        summary = [
-            f"🔍 Directory Traversal Scan Summary",
-            f"📋 URL: {result['url']}",
-            f"⏱️  Duración: {result['scan_duration']}s",
-            f"📊 Estado: {result['status']}",
-            f"⚠️  Archivos sensibles encontrados: {result['vulnerabilities_found']}",
-            f"📅 Fecha: {result['timestamp']}",
-            "",
-            "📋 ARCHIVOS SENSIBLES ENCONTRADOS:"
-        ]
-        
-        for i, vuln in enumerate(result['vulnerabilities'], 1):
-            severity_emoji = {
-                'CRITICAL': '🔥',
-                'HIGH': '🚨', 
-                'MEDIUM': '⚠️',
-                'LOW': 'ℹ️'
-            }.get(vuln['severity'], '❓')
-            
-            summary.append(
-                f"{i}. {severity_emoji} [{vuln['severity']}] {vuln['description']}"
-            )
-        
-        return "\n".join(summary)
-
-if __name__ == "__main__":
-    import sys
-    
-    # URL de prueba por defecto
-    test_url = "https://httpbin.org"
-    
-    # Usar URL del argumento si se proporciona
-    if len(sys.argv) > 1:
-        test_url = sys.argv[1]
-    
-    print(f"📁 Iniciando escaneo de directorios de: {test_url}")
-    print("⏳ Este escaneo puede tardar varios minutos...")
-    
-    try:
-        # Usar configuración más rápida para pruebas
-        scanner = DirectoryScanner(timeout=2, max_retries=1)
-        result = scanner.scan(test_url)
-        
-        print(f"\n📁 Directory Scan Summary")
-        print(f"📋 URL: {result['url']}")
-        print(f"⏱️  Duración: {result['scan_duration']}s")
-        print(f"📊 Estado: {result['status']}")
-        print(f"⚠️  Vulnerabilidades: {result['vulnerabilities_found']}")
-        print(f"📅 Fecha: {result['timestamp']}")
-        
-        if result['vulnerabilities_found'] > 0:
-            print(f"\n📋 VULNERABILIDADES ENCONTRADAS:")
-            for i, vuln in enumerate(result['vulnerabilities'], 1):
-                severity_icon = {
-                    'CRITICAL': '💀',
-                    'HIGH': '🚨',
-                    'MEDIUM': '⚠️',
-                    'LOW': 'ℹ️'
-                }.get(vuln['severity'], '❓')
-                
-                print(f"{i}. {severity_icon} [{vuln['severity']}] {vuln['description']}")
-            
-            print(f"\n📄 Detalles completos:")
-            for vuln in result['vulnerabilities']:
-                print(f"{vuln['description']}")
-                if vuln.get('details'):
-                    print(f"   Detalles: {vuln['details']}")
-                if vuln.get('location'):
-                    print(f"   Ubicación: {vuln['location']}")
-                print(f"   Recomendación: {vuln['recommendation']}")
-        else:
-            print(f"\n✅ ¡No se encontraron archivos/directorios sensibles expuestos!")
-            
-    except KeyboardInterrupt:
-        print(f"\n⚠️  Escaneo interrumpido por el usuario")
-        sys.exit(0)
-    except Exception as e:
-        print(f"❌ Error durante el escaneo: {e}")
-        sys.exit(1)
+        return (
+            f"Sensitive File Scan: {result['url']}\n"
+            f"Estado: {result['status']}\n"
+            f"Hallazgos confirmados: {result['vulnerabilities_found']}"
+        )

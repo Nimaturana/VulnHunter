@@ -1,7 +1,7 @@
 # scanners/sql_injection_scanner.py
 import requests
 from bs4 import BeautifulSoup
-from urllib.parse import urljoin, urlparse
+from urllib.parse import parse_qsl, urlencode, urljoin, urlparse, urlunparse
 import re
 import time
 from typing import List, Dict, Optional
@@ -125,14 +125,12 @@ class SQLInjectionScanner:
                     results["vulnerabilities"].extend(vuln_found)
                     results["vulnerable"] = True
             
-            # 4. Probar SQL injection en parámetros GET
-            get_vuln = self._test_get_parameters_sqli(target_url)
-            if get_vuln:
-                results["vulnerabilities"].extend(get_vuln)
-                results["vulnerable"] = True
-            
-            # 5. Buscar URLs con parámetros en la página
+            # Probar únicamente parámetros que existen en el objetivo o en
+            # enlaces descubiertos. Inventar nombres comunes genera ruido.
             param_urls = self._extract_urls_with_params(target_url, soup)
+            if urlparse(target_url).query:
+                param_urls.insert(0, target_url)
+            param_urls = list(dict.fromkeys(param_urls))[:5]
             for param_url in param_urls:
                 url_vuln = self._test_url_sqli(param_url)
                 if url_vuln:
@@ -172,10 +170,15 @@ class SQLInjectionScanner:
             
             # Construir URL completa
             form_url = urljoin(base_url, action)
+            if urlparse(form_url).netloc != urlparse(base_url).netloc:
+                return vulnerabilities
+            if method not in {'get', 'post'}:
+                return vulnerabilities
             
             # Obtener todos los campos del formulario
             inputs = form.find_all(['input', 'textarea', 'select'])
             form_data = {}
+            testable_fields = []
             
             for input_field in inputs:
                 name = input_field.get('name')
@@ -185,12 +188,15 @@ class SQLInjectionScanner:
                     # Asignar valores por defecto según el tipo
                     if input_type in ['text', 'search', 'email', 'url', 'number']:
                         form_data[name] = 'test'
+                        testable_fields.append(name)
                     elif input_type == 'hidden':
                         form_data[name] = input_field.get('value', '')
-                    elif input_type in ['submit', 'button']:
+                    elif input_type in ['submit', 'button', 'file', 'reset']:
                         continue
                     else:
                         form_data[name] = 'test'
+                        if not re.search(r'(csrf|xsrf|token|nonce)', name, re.I):
+                            testable_fields.append(name)
             
             if not form_data:
                 return vulnerabilities
@@ -206,11 +212,11 @@ class SQLInjectionScanner:
                     normal_response = self.session.get(form_url, params=form_data, timeout=15)
                 normal_content = normal_response.text
                 normal_length = len(normal_content)
-            except:
+            except requests.RequestException:
                 return vulnerabilities
             
             # Probar cada payload en cada campo susceptible
-            for field_name in form_data:
+            for field_name in testable_fields:
                 if self._is_injectable_field(field_name, form_data[field_name]):
                     for payload in self.sql_payloads:
                         test_data = form_data.copy()
@@ -248,58 +254,6 @@ class SQLInjectionScanner:
         
         return vulnerabilities
     
-    def _test_get_parameters_sqli(self, target_url: str) -> List[Dict]:
-        """
-        Prueba SQL injection en parámetros GET comunes
-        """
-        vulnerabilities = []
-        
-        # Parámetros comunes susceptibles a SQL injection
-        common_params = [
-            'id', 'user_id', 'product_id', 'page_id', 'category_id',
-            'search', 'q', 'query', 'keyword',
-            'user', 'username', 'email',
-            'page', 'limit', 'offset',
-            'sort', 'order', 'filter'
-        ]
-        
-        print(f"💉 Probando parámetros GET para SQL injection...")
-        
-        for param in common_params:
-            # Obtener respuesta normal
-            try:
-                normal_url = f"{target_url}?{param}=1"
-                normal_response = self.session.get(normal_url, timeout=15)
-            except:
-                continue
-            
-            # Probar algunos payloads selectos
-            for payload in self.sql_payloads[:8]:  # Solo los primeros 8 para ser eficiente
-                try:
-                    test_url = f"{target_url}?{param}={payload}"
-                    response = self.session.get(test_url, timeout=15)
-                    
-                    vuln_found = self._analyze_response_for_sqli(
-                        response, normal_response, payload, {
-                            "type": "URL Parameter SQL Injection",
-                            "location": test_url,
-                            "parameter": param,
-                            "method": "GET"
-                        }
-                    )
-                    
-                    if vuln_found:
-                        vulnerabilities.append(vuln_found)
-                        print(f"🚨 SQL Injection encontrado en parámetro '{param}'!")
-                        break
-                
-                except requests.RequestException:
-                    continue
-                
-                time.sleep(0.2)
-        
-        return vulnerabilities
-    
     def _test_url_sqli(self, url: str) -> List[Dict]:
         """
         Prueba SQL injection en una URL que ya tiene parámetros
@@ -314,39 +268,33 @@ class SQLInjectionScanner:
             # Obtener respuesta normal
             normal_response = self.session.get(url, timeout=15)
             
-            # Probar inyección en cada parámetro
-            params = parsed_url.query.split('&')
-            for param_pair in params:
-                if '=' in param_pair:
-                    param_name, param_value = param_pair.split('=', 1)
-                    
-                    for payload in self.sql_payloads[:5]:  # Solo algunos payloads
-                        try:
-                            modified_query = parsed_url.query.replace(
-                                f"{param_name}={param_value}",
-                                f"{param_name}={payload}"
-                            )
-                            test_url = f"{parsed_url.scheme}://{parsed_url.netloc}{parsed_url.path}?{modified_query}"
-                            
-                            response = self.session.get(test_url, timeout=15)
-                            
-                            vuln_found = self._analyze_response_for_sqli(
-                                response, normal_response, payload, {
-                                    "type": "URL SQL Injection",
-                                    "location": test_url,
-                                    "parameter": param_name,
-                                    "method": "GET"
-                                }
-                            )
-                            
-                            if vuln_found:
-                                vulnerabilities.append(vuln_found)
-                                break
-                        
-                        except requests.RequestException:
-                            continue
-                        
-                        time.sleep(0.1)
+            params = parse_qsl(parsed_url.query, keep_blank_values=True)
+            for index, (param_name, _param_value) in enumerate(params):
+                for payload in self.sql_payloads[:5]:
+                    try:
+                        modified = list(params)
+                        modified[index] = (param_name, payload)
+                        test_url = urlunparse(parsed_url._replace(query=urlencode(modified)))
+
+                        response = self.session.get(test_url, timeout=15)
+
+                        vuln_found = self._analyze_response_for_sqli(
+                            response, normal_response, payload, {
+                                "type": "URL SQL Injection",
+                                "location": test_url,
+                                "parameter": param_name,
+                                "method": "GET"
+                            }
+                        )
+
+                        if vuln_found:
+                            vulnerabilities.append(vuln_found)
+                            break
+
+                    except requests.RequestException:
+                        continue
+
+                    time.sleep(0.1)
         
         except Exception as e:
             print(f"❌ Error probando URL SQL injection: {e}")
@@ -360,57 +308,23 @@ class SQLInjectionScanner:
         response_text = response.text
         normal_text = normal_response.text
         
-        # 1. Verificar errores de base de datos
+        # Solo un error específico de base de datos NUEVO es evidencia suficiente.
+        # Cambios de tamaño o códigos 400/500 aparecen también por validación,
+        # WAF, contenido dinámico y rate limiting; por sí solos no confirman SQLi.
         for pattern in self.error_patterns:
-            if re.search(pattern, response_text, re.IGNORECASE):
+            attack_match = re.search(pattern, response_text, re.IGNORECASE)
+            baseline_match = re.search(pattern, normal_text, re.IGNORECASE)
+            if attack_match and not baseline_match:
                 return {
                     **base_info,
                     "payload": payload,
-                    "severity": "High",
-                    "evidence": "Database error detected",
-                    "details": f"Error pattern found: {pattern}"
+                    "severity": "HIGH",
+                    "confidence": "high",
+                    "evidence": f"Error de base de datos nuevo: {attack_match.group(0)[:160]}",
+                    "description": "La entrada provocó un error específico del motor SQL ausente en la respuesta base.",
+                    "recommendation": "Usar consultas parametrizadas y no mostrar errores del motor de base de datos.",
+                    "details": f"Patrón confirmado: {pattern}",
                 }
-        
-        # 2. Verificar cambios significativos en la respuesta
-        length_diff = abs(len(response_text) - len(normal_text))
-        if length_diff > len(normal_text) * 0.3:  # Cambio mayor al 30%
-            return {
-                **base_info,
-                "payload": payload,
-                "severity": "Medium",
-                "evidence": "Significant response change",
-                "details": f"Response length changed from {len(normal_text)} to {len(response_text)}"
-            }
-        
-        # 3. Verificar códigos de estado diferentes
-        if response.status_code != normal_response.status_code:
-            if response.status_code in [500, 503, 400]:
-                return {
-                    **base_info,
-                    "payload": payload,
-                    "severity": "Medium",
-                    "evidence": "HTTP status code change",
-                    "details": f"Status changed from {normal_response.status_code} to {response.status_code}"
-                }
-        
-        # 4. Verificar patrones específicos de SQL injection exitoso
-        success_patterns = [
-            r"UNION.*SELECT",
-            r"syntax.*error.*near",
-            r"ORA-\d+",
-            r"mysql_.*error",
-        ]
-        
-        for pattern in success_patterns:
-            if re.search(pattern, response_text, re.IGNORECASE):
-                return {
-                    **base_info,
-                    "payload": payload,
-                    "severity": "High",
-                    "evidence": "SQL injection pattern detected",
-                    "details": f"Success pattern found: {pattern}"
-                }
-        
         return None
     
     def _is_injectable_field(self, field_name: str, field_value: str) -> bool:
@@ -447,8 +361,10 @@ class SQLInjectionScanner:
         for link in links:
             href = link['href']
             full_url = urljoin(base_url, href)
-            
-            if '?' in full_url and '=' in full_url:
+
+            if urlparse(full_url).netloc != urlparse(base_url).netloc:
+                continue
+            if urlparse(full_url).query:
                 urls.append(full_url)
         
         return urls[:5]  # Limitar a 5 URLs para no ser demasiado lento

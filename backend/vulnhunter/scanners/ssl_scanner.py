@@ -20,6 +20,7 @@ class SSLScanner:
         """Escanea configuración SSL/TLS de una URL"""
         start_time = time.time()
         vulnerabilities = []
+        error = None
         
         try:
             parsed_url = urlparse(url)
@@ -43,6 +44,8 @@ class SSLScanner:
             cert_info = self._get_certificate_info(hostname, port)
             if cert_info.get('vulnerabilities'):
                 vulnerabilities.extend(cert_info['vulnerabilities'])
+            if cert_info.get('error'):
+                error = cert_info['error']
             
             # Verificar configuración SSL
             ssl_config = self._check_ssl_configuration(hostname, port)
@@ -55,15 +58,9 @@ class SSLScanner:
                 vulnerabilities.extend(redirect_check['vulnerabilities'])
                 
         except Exception as e:
-            vulnerabilities.append({
-                'type': 'SSL_SCAN_ERROR',
-                'severity': 'MEDIUM',
-                'description': f'Error al escanear SSL: {str(e)}',
-                'location': url,
-                'recommendation': 'Verificar que el certificado SSL esté correctamente configurado'
-            })
+            error = f'Error al escanear SSL: {str(e)}'
         
-        return self._build_result(url, time.time() - start_time, vulnerabilities)
+        return self._build_result(url, time.time() - start_time, vulnerabilities, error)
 
     def _get_certificate_info(self, hostname: str, port: int) -> Dict:
         """Obtiene información del certificado SSL"""
@@ -94,21 +91,12 @@ class SSLScanner:
                     elif days_until_expiry <= 30:
                         vulnerabilities.append({
                             'type': 'CERTIFICATE_EXPIRING_SOON',
-                            'severity': 'HIGH',
+                            'severity': 'MEDIUM',
+                            'confidence': 'high',
                             'description': f'Certificado SSL expira en {days_until_expiry} días',
                             'details': f'Expira el: {cert["notAfter"]}',
                             'location': f'{hostname}:{port}',
                             'recommendation': 'Renovar certificado SSL antes de que expire'
-                        })
-                    
-                    # Verificar nombre del certificado
-                    if not self._verify_hostname(cert, hostname):
-                        vulnerabilities.append({
-                            'type': 'HOSTNAME_MISMATCH',
-                            'severity': 'HIGH',
-                            'description': 'El certificado no coincide con el hostname',
-                            'location': f'{hostname}:{port}',
-                            'recommendation': 'Usar certificado que coincida con el dominio'
                         })
                     
                     # Verificar algoritmo de firma
@@ -122,21 +110,15 @@ class SSLScanner:
                         })
                         
         except socket.timeout:
-            vulnerabilities.append({
-                'type': 'SSL_CONNECTION_TIMEOUT',
-                'severity': 'MEDIUM',
-                'description': 'Timeout al conectar por SSL',
-                'location': f'{hostname}:{port}',
-                'recommendation': 'Verificar configuración del servidor SSL'
-            })
+            return {
+                'vulnerabilities': vulnerabilities,
+                'error': f'Timeout al conectar por SSL con {hostname}:{port}',
+            }
         except ssl.SSLError as e:
-            vulnerabilities.append({
-                'type': 'SSL_ERROR',
-                'severity': 'HIGH',
-                'description': f'Error SSL: {str(e)}',
-                'location': f'{hostname}:{port}',
-                'recommendation': 'Revisar configuración SSL del servidor'
-            })
+            return {
+                'vulnerabilities': vulnerabilities,
+                'error': f'No se pudo validar TLS en {hostname}:{port}: {e}',
+            }
         
         return {'vulnerabilities': vulnerabilities}
 
@@ -246,7 +228,13 @@ class SSLScanner:
         except:
             return False
 
-    def _build_result(self, url: str, scan_time: float, vulnerabilities: List) -> Dict:
+    def _build_result(
+        self,
+        url: str,
+        scan_time: float,
+        vulnerabilities: List,
+        error: str | None = None,
+    ) -> Dict:
         """Construye el resultado final del escaneo"""
         return {
             'scanner_type': self.name,
@@ -254,7 +242,8 @@ class SSLScanner:
             'scan_duration': round(scan_time, 2),
             'vulnerabilities_found': len(vulnerabilities),
             'vulnerabilities': vulnerabilities,
-            'status': 'VULNERABLE' if vulnerabilities else 'SECURE',
+            'status': 'VULNERABLE' if vulnerabilities else ('ERROR' if error else 'SECURE'),
+            'error': error,
             'timestamp': datetime.now().isoformat()
         }
 
