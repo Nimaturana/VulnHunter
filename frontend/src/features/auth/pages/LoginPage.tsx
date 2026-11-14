@@ -4,7 +4,7 @@ import { theme } from "../../../shared/styles/theme";
 // Iconos de la librería lucide-react (ojo abierto / ojo tachado).
 import { Eye, EyeOff } from "lucide-react";
 // Funciones que hablan con el backend de autenticación.
-import { registrarUsuario, iniciarSesion, ApiError } from "../../../shared/api/auth";
+import { registrarUsuario, iniciarSesion, ApiError, type Usuario } from "../../../shared/api/auth";
 
 
 // Atajo para no escribir "theme.colors" en cada línea.
@@ -15,8 +15,9 @@ const c = theme.colors;
 // - onLogin: decide el rol (analyst o user) y entra al panel.
 type LoginProps = {
   onBack: () => void;
-  onLogin: (role: "analyst" | "user") => void;
+  onLogin: (role: "analyst" | "user", usuario: Usuario) => void;
 };
+
 
 // Sub-vistas internas de esta pantalla.
 // "start"    = elección de método (Google/Microsoft/correo)
@@ -160,11 +161,12 @@ function Login({ onBack, onLogin }: LoginProps) {
       // El backend nos dice el role. Lo traducimos al que espera el panel:
       // "admin" -> "analyst" (panel de administrador)
       // "user"  -> "user"    (panel de cliente)
-      if (usuario.role === "admin") {
-        onLogin("analyst");
+       if (usuario.role === "admin") {
+        onLogin("analyst", usuario);
       } else {
-        onLogin("user");
+        onLogin("user", usuario);
       }
+
     } catch (error) {
       // 401 = correo o contraseña incorrectos.
       if (error instanceof ApiError && error.status === 401) {

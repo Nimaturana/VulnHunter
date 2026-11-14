@@ -27,6 +27,7 @@ function App() {
   const [screen, setScreen] = useState<Screen>("welcome");
   // userRole: con qué rol entró el usuario ("analyst" = admin, "user" = cliente).
   const [userRole, setUserRole] = useState<UserRole>(null);
+  const [usuario, setUsuario] = useState<import("../shared/api/auth").Usuario | null>(null);
   // activePage: qué sección del menú admin está seleccionada.
   const [activePage, setActivePage] = useState<AdminPage>("dashboard");
 
@@ -58,8 +59,9 @@ function App() {
         {/* Capa de encima: el login como modal (trae su propio scrim difuminado). */}
         <Login
           onBack={() => setScreen("welcome")}
-          onLogin={(role) => {
+          onLogin={(role, usuarioLogueado) => {
             setUserRole(role);        // guardamos el rol elegido
+            setUsuario(usuarioLogueado); // guardamos el usuario completo (nombre, id, email)
             setScreen("app");         // pasamos a la aplicación
             if (role === "analyst") {
               setActivePage("dashboard"); // el admin arranca en el Dashboard
@@ -71,12 +73,15 @@ function App() {
   }
 
 
+
   // ========================= PANEL DEL USUARIO / CLIENTE =========================
   if (screen === "app" && userRole === "user") {
     return (
       <UserDashboard
+        usuario={usuario}
         onBack={() => {
           setUserRole(null);
+          setUsuario(null);
           setScreen("welcome");
         }}
       />

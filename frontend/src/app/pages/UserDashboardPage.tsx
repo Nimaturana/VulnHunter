@@ -1,14 +1,18 @@
 import { useState } from "react";
 import { PieChart, Pie, Cell, ResponsiveContainer } from "recharts";
+import type { Usuario } from "../../shared/api/auth";
+
 // Paleta central para usar los mismos colores que el resto de la app.
 import { theme } from "../../shared/styles/theme";
 
 const c = theme.colors;
 
-// Props: onBack cierra sesión / vuelve a la bienvenida.
+// Props: usuario conectado y onBack (cierra sesión / vuelve a la bienvenida).
 type UserDashboardProps = {
+  usuario: Usuario | null;
   onBack: () => void;
 };
+
 
 // Colores, nombres de severidad y de riesgo.
 const sevColor = { crit: c.severity.critical, high: c.severity.high, med: c.severity.medium, low: c.severity.low };
@@ -112,7 +116,13 @@ const card: React.CSSProperties = {
 
 const sevKeys = ["crit", "high", "med", "low"] as const;
 
-function UserDashboard({ onBack }: UserDashboardProps) {
+function UserDashboard({ usuario, onBack }: UserDashboardProps) {
+  // Nombre completo del usuario conectado (ej: "Carlos Méndez"). Si no hay, usamos un texto neutro.
+  const nombreCompleto = usuario ? `${usuario.nombre} ${usuario.apellido}` : "Usuario";
+  // Iniciales para el avatar (ej: "CM"). Si no hay usuario, "U".
+  const iniciales = usuario
+    ? `${usuario.nombre[0] ?? ""}${usuario.apellido[0] ?? ""}`.toUpperCase()
+    : "U";
   // vista actual: "home" (lista de sitios) o el dominio del sitio en detalle.
   const [detalle, setDetalle] = useState<string | null>(null);
   // hallazgo abierto (para desplegar su descripción). Guarda el índice o null.
@@ -130,7 +140,12 @@ function UserDashboard({ onBack }: UserDashboardProps) {
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: "14px" }}>
             <div style={{ display: "flex", alignItems: "center", gap: "10px", paddingRight: "14px", borderRight: `1px solid ${c.border}` }}>
-              <div style={{ width: "34px", height: "34px", borderRadius: "50%", background: "#E0E7FF", color: c.primary, display: "grid", placeItems: "center", fontWeight: 600, fontSize: "13px" }}>VR</div>
+             <div style={{ width: "34px", height: "34px", borderRadius: "50%", background: "#E0E7FF", color: c.primary, display: "grid", placeItems: "center", fontWeight: 600, fontSize: "13px" }}>{iniciales}</div>
+              <div>
+                <div style={{ fontSize: "13.5px", fontWeight: 600 }}>{nombreCompleto}</div>
+                <div style={{ fontSize: "12px", color: c.muted }}>{usuario?.email ?? ""}</div>
+              </div>
+
               <div>
                 <div style={{ fontSize: "13.5px", fontWeight: 600 }}>Valentina Rojas</div>
                 <div style={{ fontSize: "12px", color: c.muted }}>Mi Empresa SpA</div>
@@ -150,7 +165,7 @@ function UserDashboard({ onBack }: UserDashboardProps) {
             {/* ENCABEZADO. */}
             <header style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", marginBottom: "28px" }}>
               <div>
-                <h1 style={{ margin: 0, fontSize: "30px", fontWeight: 700, letterSpacing: "-0.02em" }}>Hola, Valentina</h1>
+                <h1 style={{ margin: 0, fontSize: "30px", fontWeight: 700, letterSpacing: "-0.02em" }}>Hola, {usuario?.nombre ?? ""}</h1>
                 <p style={{ color: c.muted, fontSize: "15px", margin: "6px 0 0" }}>Estado de seguridad de tus sitios</p>
               </div>
               <button style={{ display: "inline-flex", alignItems: "center", gap: "8px", backgroundColor: c.primary, color: "#fff", border: 0, borderRadius: "9px", padding: "11px 18px", fontWeight: 600, fontSize: "14px", cursor: "pointer", boxShadow: "0 1px 2px rgba(37,99,235,.25)" }}>
