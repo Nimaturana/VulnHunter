@@ -5,6 +5,10 @@ import type { Usuario } from "../../shared/api/auth";
 // Paleta central para usar los mismos colores que el resto de la app.
 import { theme } from "../../shared/styles/theme";
 
+// Funciones para hablar con el backend sobre escaneos.
+import { iniciarEscaneo, obtenerEscaneo, ApiError } from "../../shared/api/scans";
+
+
 const c = theme.colors;
 
 // Props: usuario conectado y onBack (cierra sesión / vuelve a la bienvenida).
@@ -128,6 +132,89 @@ function UserDashboard({ usuario, onBack }: UserDashboardProps) {
   // hallazgo abierto (para desplegar su descripción). Guarda el índice o null.
   const [abierto, setAbierto] = useState<number | null>(null);
 
+    // ---- Estados del formulario "Nuevo escaneo" ----
+  // Controla si el formulario para escanear está abierto o cerrado.
+  const [formAbierto, setFormAbierto] = useState(false);
+  // Guarda la dirección del sitio que el usuario quiere escanear.
+  const [urlNueva, setUrlNueva] = useState("");
+  // true mientras el escaneo está en marcha (para deshabilitar el botón y mostrar "Escaneando...").
+  const [escaneando, setEscaneando] = useState(false);
+  // Mensaje de error del formulario de escaneo (ej: "Ingresa una dirección válida").
+  const [errorEscaneo, setErrorEscaneo] = useState("");
+
+    // ---- Función que ejecuta un escaneo nuevo ----
+  // Se llama cuando el usuario aprieta "Escanear" en el formulario.
+  // Manda la URL al backend, espera a que el escaneo termine, y avisa.
+  const ejecutarEscaneo = async () => {
+    // Limpiamos cualquier error anterior.
+    setErrorEscaneo("");
+
+    // Validación simple: que haya escrito algo.
+    const url = urlNueva.trim();
+    if (!url) {
+      setErrorEscaneo("Ingresa la dirección de tu sitio (ej: https://mi-sitio.cl).");
+      return;
+    }
+
+    // Validación simple: que empiece con http:// o https://
+    if (!url.startsWith("http://") && !url.startsWith("https://")) {
+      setErrorEscaneo("La dirección debe empezar con http:// o https://");
+      return;
+    }
+
+    // Si no sabemos quién es el usuario, no podemos amarrar el escaneo.
+    if (!usuario) {
+      setErrorEscaneo("No se pudo identificar tu sesión. Vuelve a iniciar sesión.");
+      return;
+    }
+
+    try {
+      // Marcamos que estamos escaneando (esto deshabilita el botón y muestra "Escaneando...").
+      setEscaneando(true);
+
+      // 1) Disparamos el escaneo en el backend, mandando la URL y el id del usuario.
+      const inicio = await iniciarEscaneo({
+        url,
+        requested_by_user_id: usuario.id,
+      });
+
+      // 2) El escaneo corre en segundo plano en el backend. Vamos preguntando
+      //    cada 3 segundos si ya terminó, hasta 40 intentos (unos 2 minutos máx).
+      let intentos = 0;
+      let termino = false;
+      while (intentos < 40 && !termino) {
+        // Esperamos 3 segundos antes de volver a preguntar.
+        await new Promise((r) => setTimeout(r, 3000));
+        // Preguntamos el estado actual del escaneo.
+        const estado = await obtenerEscaneo(inicio.scan_id);
+        // Si el estado es "completed" o "partial", el escaneo terminó.
+        if (estado.status === "completed" || estado.status === "partial") {
+          termino = true;
+        }
+        intentos++;
+      }
+
+      // 3) Terminó (o se acabó el tiempo de espera). Cerramos el formulario y limpiamos.
+      setEscaneando(false);
+      setFormAbierto(false);
+      setUrlNueva("");
+
+      // Por ahora avisamos con una alerta simple. En el paso siguiente,
+      // en vez de esto, recargaremos el dashboard con los datos reales.
+      alert("¡Escaneo terminado! En el siguiente paso lo mostraremos en el panel.");
+    } catch (error) {
+      // Si algo falla, dejamos de escanear y mostramos un mensaje claro.
+      setEscaneando(false);
+      if (error instanceof ApiError) {
+        setErrorEscaneo("El servidor rechazó el escaneo. Revisa la dirección e intenta de nuevo.");
+      } else {
+        setErrorEscaneo("No se pudo conectar con el servidor. ¿Está encendido el backend?");
+      }
+    }
+  };
+
+
+
   return (
     <div style={{ minHeight: "100vh", width: "100%", backgroundColor: c.background, color: c.text, fontFamily: "'Inter', Arial, sans-serif", boxSizing: "border-box" }}>
       {/* ───────── BARRA SUPERIOR ───────── */}
@@ -146,10 +233,6 @@ function UserDashboard({ usuario, onBack }: UserDashboardProps) {
                 <div style={{ fontSize: "12px", color: c.muted }}>{usuario?.email ?? ""}</div>
               </div>
 
-              <div>
-                <div style={{ fontSize: "13.5px", fontWeight: 600 }}>Valentina Rojas</div>
-                <div style={{ fontSize: "12px", color: c.muted }}>Mi Empresa SpA</div>
-              </div>
             </div>
             <button onClick={onBack} style={{ display: "inline-flex", alignItems: "center", gap: "7px", background: "none", border: 0, color: c.muted, fontWeight: 500, fontSize: "13.5px", cursor: "pointer", padding: "8px 10px", borderRadius: "8px" }}>
               ← Cerrar sesión
@@ -168,10 +251,55 @@ function UserDashboard({ usuario, onBack }: UserDashboardProps) {
                 <h1 style={{ margin: 0, fontSize: "30px", fontWeight: 700, letterSpacing: "-0.02em" }}>Hola, {usuario?.nombre ?? ""}</h1>
                 <p style={{ color: c.muted, fontSize: "15px", margin: "6px 0 0" }}>Estado de seguridad de tus sitios</p>
               </div>
-              <button style={{ display: "inline-flex", alignItems: "center", gap: "8px", backgroundColor: c.primary, color: "#fff", border: 0, borderRadius: "9px", padding: "11px 18px", fontWeight: 600, fontSize: "14px", cursor: "pointer", boxShadow: "0 1px 2px rgba(37,99,235,.25)" }}>
+              {/* Botón que abre/cierra el formulario de nuevo escaneo. */}
+              <button
+                onClick={() => { setFormAbierto(!formAbierto); setErrorEscaneo(""); }}
+                style={{ display: "inline-flex", alignItems: "center", gap: "8px", backgroundColor: c.primary, color: "#fff", border: 0, borderRadius: "9px", padding: "11px 18px", fontWeight: 600, fontSize: "14px", cursor: "pointer", boxShadow: "0 1px 2px rgba(37,99,235,.25)" }}
+              >
                 + Nuevo escaneo
               </button>
             </header>
+
+            {/* ───────── FORMULARIO DE NUEVO ESCANEO ───────── */}
+            {/* Solo se muestra cuando formAbierto es true (al apretar "+ Nuevo escaneo"). */}
+            {formAbierto && (
+              <div style={{ ...card, padding: "22px 24px", marginBottom: "32px" }}>
+                <div style={{ fontSize: "16px", fontWeight: 600, marginBottom: "4px" }}>Escanear un sitio</div>
+                <div style={{ fontSize: "13px", color: c.muted, marginBottom: "16px" }}>
+                  Escribe la dirección completa de tu sitio web. El análisis puede tardar un par de minutos.
+                </div>
+                <div style={{ display: "flex", gap: "10px", alignItems: "flex-start" }}>
+                  {/* Campo donde el usuario escribe la URL. */}
+                  <input
+                    type="text"
+                    value={urlNueva}
+                    onChange={(e) => setUrlNueva(e.target.value)}
+                    placeholder="https://mi-sitio.cl"
+                    disabled={escaneando}
+                    style={{ flex: 1, padding: "11px 14px", borderRadius: "9px", border: `1px solid ${c.border}`, fontSize: "14px", fontFamily: "inherit", outline: "none" }}
+                  />
+                  {/* Botón que dispara el escaneo. Mientras escanea, se deshabilita y cambia el texto. */}
+                  <button
+                    onClick={ejecutarEscaneo}
+                    disabled={escaneando}
+                    style={{ backgroundColor: escaneando ? c.muted : c.primary, color: "#fff", border: 0, borderRadius: "9px", padding: "11px 20px", fontWeight: 600, fontSize: "14px", cursor: escaneando ? "default" : "pointer", whiteSpace: "nowrap" }}
+                  >
+                    {escaneando ? "Escaneando…" : "Escanear"}
+                  </button>
+                </div>
+                {/* Mensaje de error, si lo hay. */}
+                {errorEscaneo && (
+                  <div style={{ color: c.severity.critical, fontSize: "13px", marginTop: "10px" }}>{errorEscaneo}</div>
+                )}
+                {/* Aviso mientras escanea, para que el usuario sepa que debe esperar. */}
+                {escaneando && (
+                  <div style={{ color: c.muted, fontSize: "13px", marginTop: "10px" }}>
+                    Analizando tu sitio… esto puede tardar un par de minutos. No cierres esta ventana.
+                  </div>
+                )}
+              </div>
+            )}
+
 
             {/* 3 TARJETAS DE RESUMEN. */}
             <section style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "20px", marginBottom: "40px" }}>

@@ -34,6 +34,28 @@ async def list_scans(
 ) -> list[ScanSummary]:
     return scan_service.list_scans(limit=limit, offset=offset, status=status)
 
+@router.get("/scans/mios", response_model=list[ScanSummary])
+async def list_my_scans(user_id: int = Query(...)) -> list[ScanSummary]:
+    from vulnhunter.database.connection import SessionLocal
+    from vulnhunter.database import crud
+
+    db = SessionLocal()
+    try:
+        scans = crud.listar_scans_de_usuario(db, user_id=user_id)
+        return [
+            ScanSummary(
+                scan_id=s.scan_id,
+                url=s.url,
+                status=s.status,
+                total_vulnerabilities=s.total_vulnerabilities or 0,
+                risk_level=s.risk_level or "LOW",
+                completed_at=s.completed_at,
+            )
+            for s in scans
+        ]
+    finally:
+        db.close()
+
 
 @router.get("/scan/{scan_id}", include_in_schema=False)
 @router.get("/scans/{scan_id}")

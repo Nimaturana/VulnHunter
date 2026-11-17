@@ -92,7 +92,9 @@ class ScanService:
                 url=scan.url,
                 scan_types=scan.scan_types,
                 description=request.description,
+                requested_by_user_id=request.requested_by_user_id,
             )
+
         except Exception:
             logger.exception("No se pudo guardar el escaneo en la base de datos")
         finally:

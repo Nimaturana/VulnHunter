@@ -115,6 +115,22 @@ def listar_scans(db: Session, limit: int = 50, offset: int = 0) -> list[Scan]:
         .limit(limit)
         .all()
     )
+    
+def listar_scans_de_usuario(
+    db: Session,
+    user_id: int,
+    limit: int = 100,
+    offset: int = 0,
+) -> list[Scan]:
+    """Lista los escaneos pedidos por un usuario, del más reciente al más antiguo."""
+    return (
+        db.query(Scan)
+        .filter(Scan.requested_by_user_id == user_id)
+        .order_by(Scan.started_at.desc())
+        .offset(offset)
+        .limit(limit)
+        .all()
+    )
 
 
 def listar_todos_scans(db: Session) -> list[Scan]:
