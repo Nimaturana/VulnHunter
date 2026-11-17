@@ -123,7 +123,7 @@ function Login({ onBack, onLogin }: LoginProps) {
   const [password, setPassword] = useState("");
   // Aviso temporal (para proveedores que aún no funcionan).
   const [aviso, setAviso] = useState("");
-    // Mensaje de error del login (ej: "correo o contraseña incorrectos").
+  // Mensaje de error del login (ej: "correo o contraseña incorrectos").
   const [loginError, setLoginError] = useState("");
 
 
@@ -161,7 +161,7 @@ function Login({ onBack, onLogin }: LoginProps) {
       // El backend nos dice el role. Lo traducimos al que espera el panel:
       // "admin" -> "analyst" (panel de administrador)
       // "user"  -> "user"    (panel de cliente)
-       if (usuario.role === "admin") {
+      if (usuario.role === "admin") {
         onLogin("analyst", usuario);
       } else {
         onLogin("user", usuario);
@@ -201,7 +201,7 @@ function Login({ onBack, onLogin }: LoginProps) {
       setRegError("Las contraseñas no coinciden.");
       return;
     }
-       // El RUT de empresa es opcional: solo lo validamos si el usuario escribió algo.
+    // El RUT de empresa es opcional: solo lo validamos si el usuario escribió algo.
     if (regRut.trim() && !rutValido(regRut)) {
       setRegError("El RUT de empresa no es válido. Revisa el número y el dígito verificador.");
       return;
@@ -328,7 +328,7 @@ function Login({ onBack, onLogin }: LoginProps) {
   // Calculamos la fuerza actual de la contraseña del registro.
   const fuerzaActual = fuerzaPassword(regPassword);
 
-  
+
   return (
     // SCRIM: capa oscura semitransparente con desenfoque que cubre toda la
     // pantalla. Deja ver la bienvenida de fondo, pero opacada. Al hacer clic
@@ -500,7 +500,7 @@ function Login({ onBack, onLogin }: LoginProps) {
             />
 
 
-                        {/* Mensaje de error del login (solo aparece si hay un error). */}
+            {/* Mensaje de error del login (solo aparece si hay un error). */}
             {loginError && (
               <p style={{ color: c.severity.critical, fontSize: "13px", marginTop: "16px", marginBottom: 0 }}>
                 {loginError}
@@ -546,8 +546,8 @@ function Login({ onBack, onLogin }: LoginProps) {
             </p>
 
             {/* --- Fila: Nombre y Apellido (dos columnas) --- */}
-            
-            <span 
+
+            <span
               style={sectionLabel}>Datos personales
             </span>
 
@@ -573,8 +573,8 @@ function Login({ onBack, onLogin }: LoginProps) {
             </div>
 
             {/* --- Correo --- */}
-            <span 
-             style={sectionLabel}>Acceso
+            <span
+              style={sectionLabel}>Acceso
             </span>
 
             <label style={{ display: "block", fontSize: "13.5px", fontWeight: 500, marginTop: "16px" }}>
@@ -591,7 +591,7 @@ function Login({ onBack, onLogin }: LoginProps) {
             {/* --- Fila: Contraseña y Confirmar (dos columnas) --- */}
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "14px", marginTop: "16px" }}>
               <div>
-                                <label style={{ display: "block", fontSize: "13.5px", fontWeight: 500 }}>Contraseña</label>
+                <label style={{ display: "block", fontSize: "13.5px", fontWeight: 500 }}>Contraseña</label>
                 {/* Contenedor relativo: permite poner el ojito encima del input. */}
                 <div style={{ position: "relative" }}>
                   <input
@@ -604,7 +604,7 @@ function Login({ onBack, onLogin }: LoginProps) {
                     style={{ ...input, paddingRight: "44px" }}
                   />
                   {/* Botón del ojito: alterna mostrar/ocultar. */}
-                                    {/* Botón del ojito: alterna mostrar/ocultar la contraseña. */}
+                  {/* Botón del ojito: alterna mostrar/ocultar la contraseña. */}
                   <button
                     type="button"
                     onClick={() => setVerPassword(!verPassword)}
@@ -630,27 +630,27 @@ function Login({ onBack, onLogin }: LoginProps) {
                   </button>
                 </div>
 
-                    {/* Barra de fuerza: 4 rayitas que se llenan según el puntaje. */}
-                  <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: "4px", marginTop: "8px" }}>
-                    {[1, 2, 3, 4].map((n) => (
-                      <div
-                        key={n}
-                        style={{
-                          height: "4px",
-                          borderRadius: "999px",
-                          // Se pinta del color del nivel si la rayita está "alcanzada".
-                          backgroundColor: n <= fuerzaActual ? nivelesPass[fuerzaActual].color : c.border,
-                        }}
-                      />
-                    ))}
-                  </div>
+                {/* Barra de fuerza: 4 rayitas que se llenan según el puntaje. */}
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: "4px", marginTop: "8px" }}>
+                  {[1, 2, 3, 4].map((n) => (
+                    <div
+                      key={n}
+                      style={{
+                        height: "4px",
+                        borderRadius: "999px",
+                        // Se pinta del color del nivel si la rayita está "alcanzada".
+                        backgroundColor: n <= fuerzaActual ? nivelesPass[fuerzaActual].color : c.border,
+                      }}
+                    />
+                  ))}
+                </div>
 
-                  {/* Texto del nivel ("Débil", "Fuerte", etc.) o una pista si está vacía. */}
-                  <p style={{ fontSize: "12px", color: c.muted, marginTop: "6px" }}>
-                    {regPassword
-                      ? <>Seguridad: <b style={{ color: nivelesPass[fuerzaActual].color }}>{nivelesPass[fuerzaActual].label}</b></>
-                      : "Usa letras, números y símbolos"}
-                  </p>
+                {/* Texto del nivel ("Débil", "Fuerte", etc.) o una pista si está vacía. */}
+                <p style={{ fontSize: "12px", color: c.muted, marginTop: "6px" }}>
+                  {regPassword
+                    ? <>Seguridad: <b style={{ color: nivelesPass[fuerzaActual].color }}>{nivelesPass[fuerzaActual].label}</b></>
+                    : "Usa letras, números y símbolos"}
+                </p>
 
               </div>
 
@@ -666,9 +666,9 @@ function Login({ onBack, onLogin }: LoginProps) {
               </div>
             </div>
 
-                        {/* --- Teléfono de contacto --- */}
-            <span 
-             style={sectionLabel}>Información de contacto
+            {/* --- Teléfono de contacto --- */}
+            <span
+              style={sectionLabel}>Información de contacto
             </span>
 
             <label style={{ display: "block", fontSize: "13.5px", fontWeight: 500, marginTop: "16px" }}>
@@ -684,7 +684,7 @@ function Login({ onBack, onLogin }: LoginProps) {
             />
 
 
-                        {/* --- RUT de empresa (opcional, con formateo automático) --- */}
+            {/* --- RUT de empresa (opcional, con formateo automático) --- */}
             <label style={{ display: "block", fontSize: "13.5px", fontWeight: 500, marginTop: "16px" }}>
               RUT de empresa <span style={{ color: c.muted, fontWeight: 400 }}>(opcional)</span>
             </label>
@@ -723,7 +723,7 @@ function Login({ onBack, onLogin }: LoginProps) {
         )}
 
         {/* Aviso temporal (proveedores "próximamente"). */}
-                {/* ===================================================== */}
+        {/* ===================================================== */}
         {/* SUB-VISTA "success": pantalla de cuenta creada        */}
         {/* ===================================================== */}
         {view === "success" && (
@@ -750,13 +750,22 @@ function Login({ onBack, onLogin }: LoginProps) {
               Te enviamos un correo a <b style={{ color: c.text }}>{regEmail}</b> para
               verificar tu cuenta.
             </p>
-            {/* Botón para entrar al panel: usa la lógica de login (admin/cliente). */}
-            <button style={btnPrimary} onClick={handleLogin}>
-              Ir a mi panel
+            {/* Botón para iniciar sesión tras registrarse. */}
+            {/* No entra directo: lleva a la pantalla de login con el correo ya puesto, */}
+            {/* para que el usuario solo escriba su contraseña. Así evitamos el error 422. */}
+            <button
+              style={btnPrimary}
+              onClick={() => {
+                setEmail(regEmail);   // Copiamos el correo del registro al campo de login.
+                setPassword("");      // La contraseña se deja vacía para que la escriba.
+                setLoginError("");    // Limpiamos cualquier error previo del login.
+                setView("email");     // Cambiamos a la sub-vista de iniciar sesión.
+              }}
+            >
+              Ir a iniciar sesión
             </button>
           </div>
         )}
-
         {aviso && (
           <p style={{ marginTop: "18px", fontSize: "13px", color: c.muted, textAlign: "center", backgroundColor: c.background, border: `1px solid ${c.border}`, borderRadius: "10px", padding: "10px" }}>
             {aviso}
@@ -766,5 +775,7 @@ function Login({ onBack, onLogin }: LoginProps) {
     </div>
   );
 }
-
 export default Login;
+
+
+

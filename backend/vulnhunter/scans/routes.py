@@ -34,27 +34,22 @@ async def list_scans(
 ) -> list[ScanSummary]:
     return scan_service.list_scans(limit=limit, offset=offset, status=status)
 
-@router.get("/scans/mios", response_model=list[ScanSummary])
-async def list_my_scans(user_id: int = Query(...)) -> list[ScanSummary]:
-    from vulnhunter.database.connection import SessionLocal
-    from vulnhunter.database import crud
 
-    db = SessionLocal()
-    try:
-        scans = crud.listar_scans_de_usuario(db, user_id=user_id)
-        return [
-            ScanSummary(
-                scan_id=s.scan_id,
-                url=s.url,
-                status=s.status,
-                total_vulnerabilities=s.total_vulnerabilities or 0,
-                risk_level=s.risk_level or "LOW",
-                completed_at=s.completed_at,
-            )
-            for s in scans
-        ]
-    finally:
-        db.close()
+def listar_scans_de_usuario(
+    db: Session,
+    user_id: int,
+    limit: int = 100,
+    offset: int = 0,
+) -> list[Scan]:
+    """Lista los escaneos pedidos por un usuario, del más reciente al más antiguo."""
+    return (
+        db.query(Scan)                                    # Consultamos la tabla de escaneos.
+        .filter(Scan.requested_by_user_id == user_id)     # Solo los que pidió ESTE usuario.
+        .order_by(Scan.started_at.desc())                 # Del más nuevo al más antiguo.
+        .offset(offset)                                   # Saltamos los primeros (para paginar).
+        .limit(limit)                                     # Traemos como máximo 'limit' resultados.
+        .all()                                            # Ejecutamos y devolvemos la lista.
+    )
 
 
 @router.get("/scan/{scan_id}", include_in_schema=False)
