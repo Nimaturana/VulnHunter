@@ -152,3 +152,15 @@ def obtener_findings_de_scan(db: Session, scan_id_publico: str) -> list[Finding]
         .all()                                      # Ejecutamos y devolvemos la lista.
     )
 
+def listar_scans_de_url(db: Session, url: str, limit: int = 50) -> list[Scan]:
+    """Lista los escaneos de una misma url, del más antiguo al más reciente (para ver la evolución)."""
+    return (
+        db.query(Scan)                              # Consultamos la tabla de escaneos.
+        .filter(Scan.url == url)                    # Solo los de ESTA url.
+        .filter(Scan.status.in_(["completed", "partial"]))  # Solo los que terminaron.
+        .order_by(Scan.completed_at.asc())          # Del más antiguo al más nuevo (para la línea de tiempo).
+        .limit(limit)                               # Como máximo 'limit' escaneos.
+        .all()
+    )
+
+

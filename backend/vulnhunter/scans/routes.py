@@ -67,6 +67,49 @@ async def list_my_scans(user_id: int = Query(...)) -> list[ScanSummary]:
         db.close()                                        # Cerramos siempre la conexión.
 
 
+# ---- Endpoint: historial de escaneos de una url (para la evolución) ----
+# Devuelve todos los escaneos de un mismo sitio, del más antiguo al más reciente,
+# con el conteo de hallazgos por severidad de cada uno.
+# IMPORTANTE: va ANTES de /scans/{scan_id}, igual que /scans/mios.
+# Se llama así: GET /scans/historial?url=https://mi-sitio.cl
+@router.get("/scans/historial")
+async def get_historial(url: str = Query(...)) -> dict:
+    from vulnhunter.database.connection import SessionLocal
+    from vulnhunter.database import crud
+
+    db = SessionLocal()
+    try:
+        # Traemos los escaneos de esa url (ordenados del más antiguo al más nuevo).
+        scans = crud.listar_scans_de_url(db, url)
+
+        historial = []
+        for s in scans:
+            # Por cada escaneo, contamos sus hallazgos por severidad.
+            findings = crud.obtener_findings_de_scan(db, s.scan_id)
+            conteo = {"crit": 0, "high": 0, "med": 0, "low": 0}
+            for f in findings:
+                sev = (f.severity or "").upper()
+                if sev == "CRITICAL":
+                    conteo["crit"] += 1
+                elif sev == "HIGH":
+                    conteo["high"] += 1
+                elif sev == "MEDIUM":
+                    conteo["med"] += 1
+                else:  # LOW e INFO se agrupan como "low".
+                    conteo["low"] += 1
+
+            historial.append({
+                "scan_id": s.scan_id,
+                "fecha": s.completed_at.isoformat() if s.completed_at else None,
+                "score": s.risk_score or 0,
+                "conteo": conteo,
+            })
+
+        return {"url": url, "historial": historial}
+    finally:
+        db.close()
+
+
 
 
 @router.get("/scan/{scan_id}", include_in_schema=False)
@@ -122,6 +165,49 @@ async def get_scan_detalle(scan_id: str) -> dict:
         }
     finally:
         db.close()                                        # Cerramos siempre la conexión.
+
+# ---- Endpoint: historial de escaneos de una url (para la evolución) ----
+# Devuelve todos los escaneos de un mismo sitio, del más antiguo al más reciente,
+# con el conteo de hallazgos por severidad de cada uno.
+# Se llama así: GET /scans/historial?url=https://mi-sitio.cl
+@router.get("/scans/historial")
+async def get_historial(url: str = Query(...)) -> dict:
+    # Importamos aquí dentro para no tocar los imports de arriba.
+    from vulnhunter.database.connection import SessionLocal
+    from vulnhunter.database import crud
+
+    db = SessionLocal()                                   # Abrimos conexión a la base.
+    try:
+        # Traemos los escaneos de esa url (ya ordenados del más antiguo al más nuevo).
+        scans = crud.listar_scans_de_url(db, url)
+
+        historial = []
+        for s in scans:
+            # Por cada escaneo, contamos sus hallazgos por severidad.
+            findings = crud.obtener_findings_de_scan(db, s.scan_id)
+            conteo = {"crit": 0, "high": 0, "med": 0, "low": 0}
+            for f in findings:
+                sev = (f.severity or "").upper()
+                if sev == "CRITICAL":
+                    conteo["crit"] += 1
+                elif sev == "HIGH":
+                    conteo["high"] += 1
+                elif sev == "MEDIUM":
+                    conteo["med"] += 1
+                else:  # LOW e INFO se agrupan como "low".
+                    conteo["low"] += 1
+
+            historial.append({
+                "scan_id": s.scan_id,
+                "fecha": s.completed_at.isoformat() if s.completed_at else None,
+                "score": s.risk_score or 0,
+                "conteo": conteo,
+            })
+
+        return {"url": url, "historial": historial}
+    finally:
+        db.close()                                        # Cerramos siempre la conexión.
+
 
 
 
