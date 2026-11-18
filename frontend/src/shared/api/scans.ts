@@ -31,6 +31,30 @@ export type ResumenEscaneo = {
   completed_at: string | null;     // Fecha/hora en que terminó (null si aún no termina).
 };
 
+// --- Forma de un hallazgo (vulnerabilidad) que viene del backend ---
+export type HallazgoBackend = {
+  type: string;            // Tipo de vulnerabilidad (ej: "XSS").
+  severity: string;        // Severidad: CRITICAL, HIGH, MEDIUM, LOW, INFO.
+  location: string | null; // Dónde se encontró.
+  scanner: string | null;  // Qué scanner lo detectó.
+  description: string | null;     // Descripción del problema.
+  recommendation: string | null;  // Cómo corregirlo.
+  confidence: string;      // Confianza: high, medium, low.
+};
+
+// --- Forma del detalle completo de un escaneo ---
+export type DetalleEscaneo = {
+  scan_id: string;
+  url: string;
+  status: string;
+  risk_level: string;              // Nivel de riesgo general.
+  risk_score: number;              // Puntaje 0-100.
+  total_vulnerabilities: number;   // Total de hallazgos.
+  completed_at: string | null;     // Cuándo terminó.
+  findings: HallazgoBackend[];     // Lista de hallazgos.
+};
+
+
 // --- Iniciar un escaneo nuevo ---
 // Llama a POST /scans enviando la url y el id del usuario conectado.
 // El backend responde 202 y empieza a escanear en segundo plano.
@@ -59,6 +83,42 @@ export async function obtenerEscaneo(scanId: string): Promise<Record<string, unk
     method: "GET",
   });
 }
+
+// --- Obtener el detalle de un escaneo CON sus hallazgos ---
+// Llama a GET /scans/{scanId}/detalle. Devuelve el escaneo y su lista de vulnerabilidades.
+export async function obtenerDetalleEscaneo(scanId: string): Promise<DetalleEscaneo> {
+  return apiRequest<DetalleEscaneo>(`/scans/${scanId}/detalle`, {
+    method: "GET",
+  });
+}
+
+// --- Forma de un punto del historial (un escaneo en el tiempo) ---
+export type PuntoHistorial = {
+  scan_id: string;
+  fecha: string | null;   // Cuándo se hizo ese escaneo.
+  score: number;          // Nivel de riesgo 0-100 de ese escaneo.
+  conteo: {               // Cuántos hallazgos de cada severidad tuvo.
+    crit: number;
+    high: number;
+    med: number;
+    low: number;
+  };
+};
+
+// --- Forma de la respuesta del historial de una url ---
+export type HistorialSitio = {
+  url: string;
+  historial: PuntoHistorial[];  // Lista de escaneos, del más antiguo al más nuevo.
+};
+
+// --- Obtener el historial de escaneos de una url (para el gráfico de evolución) ---
+// Llama a GET /scans/historial?url=...
+export async function obtenerHistorial(url: string): Promise<HistorialSitio> {
+  return apiRequest<HistorialSitio>(`/scans/historial?url=${encodeURIComponent(url)}`, {
+    method: "GET",
+  });
+}
+
 
 // Re-exportamos ApiError para poder reconocer errores en quien use estas funciones.
 export { ApiError };

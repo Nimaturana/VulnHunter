@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { PieChart, Pie, Cell, ResponsiveContainer } from "recharts";
 import type { Usuario } from "../../shared/api/auth";
 
@@ -6,7 +6,16 @@ import type { Usuario } from "../../shared/api/auth";
 import { theme } from "../../shared/styles/theme";
 
 // Funciones para hablar con el backend sobre escaneos.
-import { iniciarEscaneo, obtenerEscaneo, ApiError } from "../../shared/api/scans";
+import { iniciarEscaneo, obtenerEscaneo, obtenerMisEscaneos, 
+obtenerDetalleEscaneo, ApiError } from "../../shared/api/scans";
+import type { ResumenEscaneo, DetalleEscaneo } from "../../shared/api/scans";
+
+// Componente del detalle v2 de un sitio (archivo separado).
+import DetalleSitio from "./DetalleSitio";
+
+
+
+
 
 
 const c = theme.colors;
@@ -129,6 +138,11 @@ function UserDashboard({ usuario, onBack }: UserDashboardProps) {
     : "U";
   // vista actual: "home" (lista de sitios) o el dominio del sitio en detalle.
   const [detalle, setDetalle] = useState<string | null>(null);
+  
+    // Guarda el scan_id del escaneo que el usuario abrió en el detalle.
+  const [detalleScanId, setDetalleScanId] = useState<string | null>(null);
+
+  
   // hallazgo abierto (para desplegar su descripción). Guarda el índice o null.
   const [abierto, setAbierto] = useState<number | null>(null);
 
@@ -141,6 +155,67 @@ function UserDashboard({ usuario, onBack }: UserDashboardProps) {
   const [escaneando, setEscaneando] = useState(false);
   // Mensaje de error del formulario de escaneo (ej: "Ingresa una dirección válida").
   const [errorEscaneo, setErrorEscaneo] = useState("");
+
+
+
+
+    // ---- Estados de los datos reales (traídos del backend) ----
+  // Lista de escaneos del usuario que llegan desde /scans/mios.
+  const [misEscaneos, setMisEscaneos] = useState<ResumenEscaneo[]>([]);
+  // true mientras estamos cargando los datos por primera vez (para mostrar "Cargando…").
+  const [cargando, setCargando] = useState(true);
+
+  // ---- Función que trae los escaneos del usuario desde el backend ----
+  // La separamos para poder llamarla al abrir el dashboard Y después de escanear.
+  const cargarMisEscaneos = async () => {
+    // Si no sabemos quién es el usuario, no hay nada que pedir.
+    if (!usuario) {
+      setCargando(false);
+      return;
+    }
+    try {
+      // Pedimos al backend la lista de escaneos de este usuario.
+      const datos = await obtenerMisEscaneos(usuario.id);
+      setMisEscaneos(datos);
+    } catch {
+      // Si falla (ej: backend apagado), dejamos la lista vacía.
+      setMisEscaneos([]);
+    } finally {
+      // Pase lo que pase, dejamos de mostrar "Cargando…".
+      setCargando(false);
+    }
+  };
+
+  // ---- Estados del detalle real de un escaneo ----
+  // Guarda el detalle (con hallazgos) del escaneo que el usuario abrió. null = no hay detalle abierto.
+  const [detalleReal, setDetalleReal] = useState<DetalleEscaneo | null>(null);
+  // true mientras cargamos el detalle desde el backend.
+  const [cargandoDetalle, setCargandoDetalle] = useState(false);
+
+  // ---- Función que abre el detalle real de un escaneo ----
+  // Recibe el scan_id, pide el detalle al backend y lo guarda.
+  const abrirDetalle = async (scanId: string) => {
+    setCargandoDetalle(true);   // Mostramos "Cargando…".
+    setAbierto(null);           // Cerramos cualquier hallazgo desplegado.
+    try {
+      const datos = await obtenerDetalleEscaneo(scanId);
+      setDetalleReal(datos);    // Guardamos el detalle traído.
+    } catch {
+      setDetalleReal(null);     // Si falla, no mostramos detalle.
+    } finally {
+      setCargandoDetalle(false);
+    }
+  };
+
+  
+
+  // ---- Al abrir el dashboard, cargamos los escaneos del usuario una vez. ----
+  useEffect(() => {
+    cargarMisEscaneos();
+    // Se vuelve a ejecutar si cambia el usuario conectado.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [usuario]);
+
 
     // ---- Función que ejecuta un escaneo nuevo ----
   // Se llama cuando el usuario aprieta "Escanear" en el formulario.
@@ -199,9 +274,8 @@ function UserDashboard({ usuario, onBack }: UserDashboardProps) {
       setFormAbierto(false);
       setUrlNueva("");
 
-      // Por ahora avisamos con una alerta simple. En el paso siguiente,
-      // en vez de esto, recargaremos el dashboard con los datos reales.
-      alert("¡Escaneo terminado! En el siguiente paso lo mostraremos en el panel.");
+      // Recargamos la lista de escaneos del usuario para que aparezca el sitio recién analizado.
+      await cargarMisEscaneos();
     } catch (error) {
       // Si algo falla, dejamos de escanear y mostramos un mensaje claro.
       setEscaneando(false);
@@ -212,6 +286,51 @@ function UserDashboard({ usuario, onBack }: UserDashboardProps) {
       }
     }
   };
+
+
+
+  // ---- Agrupamos los escaneos por sitio (url) ----
+  // Para cada url distinta, nos quedamos con su escaneo más reciente,
+  // y contamos cuántos escaneos tiene ese sitio en total.
+  const sitiosReales = (() => {
+    // Un mapa: url -> { su escaneo más reciente, cuántos escaneos tiene }.
+    const porSitio: Record<string, { ultimo: ResumenEscaneo; total: number }> = {};
+    for (const esc of misEscaneos) {
+      if (!porSitio[esc.url]) {
+        // Primera vez que vemos esta url.
+        porSitio[esc.url] = { ultimo: esc, total: 1 };
+      } else {
+        // Ya existía: sumamos uno y actualizamos el "último" si este es más nuevo.
+        porSitio[esc.url].total += 1;
+        const actual = porSitio[esc.url].ultimo;
+        const fechaNueva = esc.completed_at ?? "";
+        const fechaActual = actual.completed_at ?? "";
+        if (fechaNueva > fechaActual) porSitio[esc.url].ultimo = esc;
+      }
+    }
+    return Object.values(porSitio);
+  })();
+
+  // Traducimos el nivel de riesgo del backend (texto en inglés/mayúsculas) a nuestras claves.
+  const nivelARiesgo = (nivel: string): "crit" | "high" | "med" | "low" => {
+    const n = (nivel || "").toUpperCase();
+    if (n === "CRITICAL") return "crit";
+    if (n === "HIGH") return "high";
+    if (n === "MEDIUM") return "med";
+    return "low";
+  };
+
+  // Formatea una fecha ISO ("2026-10-12T10:42:00") a algo legible ("12 oct 2026").
+  const formatearFecha = (iso: string | null): string => {
+    if (!iso) return "—";
+    try {
+      const d = new Date(iso);
+      return d.toLocaleDateString("es-CL", { day: "2-digit", month: "short", year: "numeric" });
+    } catch {
+      return "—";
+    }
+  };
+
 
 
 
@@ -302,11 +421,16 @@ function UserDashboard({ usuario, onBack }: UserDashboardProps) {
 
 
             {/* 3 TARJETAS DE RESUMEN. */}
+                       {/* 3 TARJETAS DE RESUMEN (con datos reales). */}
             <section style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "20px", marginBottom: "40px" }}>
               {[
-                { value: "2", label: "Mis sitios", foot: "Plan Pyme · hasta 3 sitios" },
-                { value: "7", label: "Mis escaneos", foot: "Último hace 2 días" },
-                { value: "12", label: "Mis hallazgos", foot: "2 críticos" },
+                { value: String(sitiosReales.length), label: "Mis sitios", foot: "Sitios asociados a tu cuenta" },
+                { value: String(misEscaneos.length), label: "Mis escaneos", foot: "Escaneos realizados en total" },
+                {
+                  value: String(misEscaneos.reduce((suma, e) => suma + (e.total_vulnerabilities || 0), 0)),
+                  label: "Mis hallazgos",
+                  foot: "Vulnerabilidades detectadas",
+                },
               ].map((r) => (
                 <div key={r.label} style={{ ...card, padding: "22px 24px", display: "flex", alignItems: "center", gap: "18px" }}>
                   <div>
@@ -318,122 +442,186 @@ function UserDashboard({ usuario, onBack }: UserDashboardProps) {
               ))}
             </section>
 
-            {/* SECCIÓN "MIS SITIOS". */}
+
+                      {/* SECCIÓN "MIS SITIOS". */}
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: "16px" }}>
               <h2 style={{ fontSize: "18px", fontWeight: 600, margin: 0 }}>Mis sitios</h2>
               <span style={{ fontSize: "13px", color: c.muted }}>Solo se muestran los sitios asociados a tu cuenta</span>
             </div>
 
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: "20px" }}>
-              {Object.values(SITES).map((s) => {
-                const cnt = countBySev(s.findings);
-                const total = s.findings.length;
-                const tag = riskTagStyle[s.risk];
-                return (
-                  <div key={s.domain} style={{ ...card, padding: "24px", display: "flex", flexDirection: "column", gap: "22px" }}>
-                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: "12px" }}>
-                      <div style={{ display: "flex", alignItems: "center", gap: "14px" }}>
-                        <div style={{ width: "44px", height: "44px", borderRadius: "11px", border: `1px solid ${c.border}`, display: "grid", placeItems: "center", fontWeight: 600, fontSize: "16px", color: c.muted }}>
-                          {s.domain[0].toUpperCase()}
+            {/* CASO 1: todavía estamos cargando los datos del backend. */}
+            {cargando ? (
+              <div style={{ ...card, padding: "48px 24px", textAlign: "center", color: c.muted }}>
+                Cargando tus sitios…
+              </div>
+            ) : sitiosReales.length === 0 ? (
+              /* CASO 2: el usuario no tiene ningún escaneo todavía → estado vacío. */
+              <div style={{ ...card, padding: "56px 24px", textAlign: "center" }}>
+                {/* Ícono de escudo. */}
+                <div style={{ width: "64px", height: "64px", borderRadius: "16px", background: "#EFF4FF", color: c.primary, display: "grid", placeItems: "center", margin: "0 auto 20px", fontSize: "30px" }}>
+                  🛡️
+                </div>
+                <h3 style={{ fontSize: "19px", fontWeight: 700, margin: "0 0 8px" }}>Aún no has analizado ningún sitio</h3>
+                <p style={{ fontSize: "14px", color: c.muted, margin: "0 auto 24px", maxWidth: "420px", lineHeight: 1.6 }}>
+                  Analiza tu sitio web para descubrir vulnerabilidades y recibir recomendaciones de seguridad.
+                </p>
+                {/* Botón grande que abre el formulario de escaneo. */}
+                <button
+                  onClick={() => { setFormAbierto(true); setErrorEscaneo(""); }}
+                  style={{ background: c.primary, color: "#fff", border: 0, borderRadius: "11px", padding: "14px 28px", fontWeight: 600, fontSize: "15px", cursor: "pointer", boxShadow: "0 1px 3px rgba(37,99,235,.3)" }}
+                >
+                  Analizar mi sitio
+                </button>
+              </div>
+            ) : (
+              /* CASO 3: el usuario tiene sitios → mostramos las tarjetas reales. */
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: "20px" }}>
+                {sitiosReales.map(({ ultimo, total }) => {
+                  // Datos reales de este sitio.
+                  const riesgo = nivelARiesgo(ultimo.risk_level);
+                  const tag = riskTagStyle[riesgo];
+                  // Dominio legible a partir de la url (sin http:// ni barras).
+                  const dominio = ultimo.url.replace(/^https?:\/\//, "").replace(/\/$/, "");
+                  return (
+                    <div key={ultimo.url} style={{ ...card, padding: "24px", display: "flex", flexDirection: "column", gap: "22px" }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: "12px" }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: "14px" }}>
+                          <div style={{ width: "44px", height: "44px", borderRadius: "11px", border: `1px solid ${c.border}`, display: "grid", placeItems: "center", fontWeight: 600, fontSize: "16px", color: c.muted }}>
+                            {dominio[0]?.toUpperCase() ?? "?"}
+                          </div>
+                          <div>
+                            <div style={{ fontSize: "17px", fontWeight: 600 }}>{dominio}</div>
+                            <div style={{ fontSize: "13px", color: c.muted, marginTop: "2px" }}>{ultimo.url}</div>
+                          </div>
                         </div>
-                        <div>
-                          <div style={{ fontSize: "17px", fontWeight: 600 }}>{s.domain}</div>
-                          <div style={{ fontSize: "13px", color: c.muted, marginTop: "2px" }}>{s.url}</div>
-                        </div>
+                        <span style={{ fontSize: "13px", fontWeight: 600, padding: "5px 11px", borderRadius: "999px", background: tag.bg, color: tag.color }}>
+                          Riesgo {riskName[riesgo]}
+                        </span>
                       </div>
-                      <span style={{ fontSize: "13px", fontWeight: 600, padding: "5px 11px", borderRadius: "999px", background: tag.bg, color: tag.color }}>
-                        Riesgo {riskName[s.risk]}
-                      </span>
-                    </div>
 
-                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", border: `1px solid ${c.border}`, borderRadius: "11px", overflow: "hidden" }}>
-                      <div style={{ padding: "14px 16px" }}>
-                        <div style={{ fontSize: "12.5px", color: c.muted }}>Vulnerabilidades</div>
-                        <div style={{ fontSize: "20px", fontWeight: 700, marginTop: "4px", display: "flex", alignItems: "baseline", gap: "6px" }}>
-                          {total}<small style={{ fontSize: "13px", fontWeight: 500, color: c.muted }}>abiertas</small>
+                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", border: `1px solid ${c.border}`, borderRadius: "11px", overflow: "hidden" }}>
+                        <div style={{ padding: "14px 16px" }}>
+                          <div style={{ fontSize: "12.5px", color: c.muted }}>Vulnerabilidades</div>
+                          <div style={{ fontSize: "20px", fontWeight: 700, marginTop: "4px", display: "flex", alignItems: "baseline", gap: "6px" }}>
+                            {ultimo.total_vulnerabilities}<small style={{ fontSize: "13px", fontWeight: 500, color: c.muted }}>detectadas</small>
+                          </div>
+                        </div>
+                        <div style={{ padding: "14px 16px", borderLeft: `1px solid ${c.border}` }}>
+                          <div style={{ fontSize: "12.5px", color: c.muted }}>Último escaneo</div>
+                          <div style={{ fontSize: "16px", fontWeight: 700, marginTop: "6px" }}>
+                            {formatearFecha(ultimo.completed_at)}
+                          </div>
                         </div>
                       </div>
-                      <div style={{ padding: "14px 16px", borderLeft: `1px solid ${c.border}` }}>
-                        <div style={{ fontSize: "12.5px", color: c.muted }}>Último escaneo</div>
-                        <div style={{ fontSize: "17px", fontWeight: 700, marginTop: "6px", display: "flex", alignItems: "baseline", gap: "6px" }}>
-                          {s.date}<small style={{ fontSize: "13px", fontWeight: 500, color: c.muted }}>{s.time} h</small>
-                        </div>
-                      </div>
-                    </div>
 
-                    <div>
-                      <div style={{ display: "flex", gap: "3px", height: "8px" }}>
-                        {sevKeys.filter((k) => cnt[k]).map((k) => (
-                          <span key={k} style={{ flex: cnt[k], background: sevColor[k], borderRadius: "3px" }} />
-                        ))}
+                      <div style={{ fontSize: "12.5px", color: c.muted }}>
+                        {total} {total === 1 ? "escaneo realizado" : "escaneos realizados"}
                       </div>
-                      <div style={{ display: "flex", gap: "16px", fontSize: "12.5px", color: c.muted, marginTop: "10px" }}>
-                        {sevKeys.map((k) => (
-                          <span key={k}>
-                            <i style={{ display: "inline-block", width: "8px", height: "8px", borderRadius: "2px", marginRight: "6px", background: sevColor[k] }} />
-                            {sevName[k]}<b style={{ color: c.text, fontWeight: 600, marginLeft: "4px" }}>{cnt[k]}</b>
-                          </span>
-                        ))}
-                      </div>
-                    </div>
 
-                    <div style={{ display: "flex", gap: "10px", paddingTop: "18px", borderTop: "1px solid #F1F2F4" }}>
-                      {/* Ver detalle: abre la vista de detalle de ESTE sitio. */}
-                      <button onClick={() => { setDetalle(s.domain); setAbierto(null); }} style={{ display: "inline-flex", alignItems: "center", gap: "7px", background: c.primary, color: "#fff", border: 0, borderRadius: "9px", padding: "9px 14px", fontWeight: 600, fontSize: "13.5px", cursor: "pointer", boxShadow: "0 1px 2px rgba(37,99,235,.25)" }}>
-                        Ver detalle
-                      </button>
-                      <button style={{ display: "inline-flex", alignItems: "center", gap: "7px", background: "#fff", color: c.text, border: `1px solid ${c.border}`, borderRadius: "9px", padding: "9px 14px", fontWeight: 500, fontSize: "13.5px", cursor: "pointer" }}>
-                        Descargar reporte PDF
-                      </button>
+                      <div style={{ display: "flex", gap: "10px", paddingTop: "18px", borderTop: "1px solid #F1F2F4" }}>
+                        {/* Ver detalle: por ahora deshabilitado; lo conectaremos en la etapa 2. */}
+                        
+                          <button
+                          onClick={() => { setDetalle(ultimo.url); setDetalleScanId(ultimo.scan_id); abrirDetalle(ultimo.scan_id); }}
+                          style={{ display: "inline-flex", alignItems: "center", gap: "7px", background: c.primary, color: "#fff", border: 0, borderRadius: "9px", padding: "9px 14px", fontWeight: 600, fontSize: "13.5px", cursor: "pointer", boxShadow: "0 1px 2px rgba(37,99,235,.25)" }}
+                        >
+                          Ver detalle
+                        </button>
+
+
+                        <button style={{ display: "inline-flex", alignItems: "center", gap: "7px", background: "#fff", color: c.text, border: `1px solid ${c.border}`, borderRadius: "9px", padding: "9px 14px", fontWeight: 500, fontSize: "13.5px", cursor: "pointer" }}>
+                          Descargar reporte PDF
+                        </button>
+                      </div>
                     </div>
-                  </div>
-                );
-              })}
-            </div>
+                  );
+                })}
+              </div>
+            )}
           </>
         ) : (
-          /* ───────── VISTA DE DETALLE DEL SITIO ───────── */
+
+          /* ───────── VISTA DE DETALLE DEL SITIO (nuevo componente DetalleSitio v2) ───────── */
           (() => {
-            const s = SITES[detalle];
-            const cnt = countBySev(s.findings);
-            const total = s.findings.length;
-            const tag = riskTagStyle[s.risk];
+            // Si tenemos el scan_id y la url, mostramos el nuevo detalle v2 (DetalleSitio).
+            if (detalleScanId && detalle) {
+              return (
+                <DetalleSitio
+                  scanId={detalleScanId}
+                  url={detalle}
+                  onVolver={() => { setDetalle(null); setDetalleScanId(null); setDetalleReal(null); }}
+                />
+              );
+            }
+
+            // Si no se pudo cargar el detalle, mostramos un mensaje y un botón para volver.
+            if (!detalleReal) {
+              return (
+                <div style={{ ...card, padding: "48px 24px", textAlign: "center", color: c.muted }}>
+                  No se pudo cargar el detalle. <span style={{ color: c.primary, cursor: "pointer" }} onClick={() => setDetalle(null)}>Volver a mis sitios</span>
+                </div>
+              );
+            }
+
+            // Traduce la severidad del backend (CRITICAL, HIGH...) a nuestras claves (crit, high...).
+            const sevABackend = (sev: string): "crit" | "high" | "med" | "low" => {
+              const v = (sev || "").toUpperCase();
+              if (v === "CRITICAL") return "crit";
+              if (v === "HIGH") return "high";
+              if (v === "MEDIUM") return "med";
+              return "low"; // LOW e INFO los agrupamos como "low".
+            };
+
+            // Dominio legible a partir de la url.
+            const dominio = detalleReal.url.replace(/^https?:\/\//, "").replace(/\/$/, "");
+            // Lista de hallazgos reales.
+            const hallazgos = detalleReal.findings;
+            const total = hallazgos.length;
+            // Contamos cuántos hallazgos hay de cada severidad.
+            const cnt = { crit: 0, high: 0, med: 0, low: 0 };
+            for (const h of hallazgos) cnt[sevABackend(h.severity)]++;
+            // Riesgo general del escaneo.
+            const riesgo = (() => {
+              const n = (detalleReal.risk_level || "").toUpperCase();
+              if (n === "CRITICAL") return "crit";
+              if (n === "HIGH") return "high";
+              if (n === "MEDIUM") return "med";
+              return "low";
+            })();
+            const tag = riskTagStyle[riesgo];
             // Datos para la dona (solo severidades con al menos 1 hallazgo).
             const donutData = sevKeys.filter((k) => cnt[k]).map((k) => ({ name: sevName[k], value: cnt[k], color: sevColor[k] }));
+
             return (
               <>
                 {/* Migas de pan: volver a "Mis sitios". */}
                 <div style={{ display: "flex", alignItems: "center", gap: "8px", fontSize: "13.5px", color: c.muted, marginBottom: "18px" }}>
-                  <span style={{ cursor: "pointer" }} onClick={() => setDetalle(null)}>← Mis sitios</span>
+                  <span style={{ cursor: "pointer" }} onClick={() => { setDetalle(null); setDetalleReal(null); }}>← Mis sitios</span>
                   <span>/</span>
-                  <span style={{ color: c.text, fontWeight: 500 }}>{s.domain}</span>
+                  <span style={{ color: c.text, fontWeight: 500 }}>{dominio}</span>
                 </div>
 
-                {/* Cabecera del detalle: identidad + acciones. */}
+                {/* Cabecera del detalle. */}
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "28px" }}>
                   <div style={{ display: "flex", alignItems: "center", gap: "16px" }}>
                     <div style={{ width: "52px", height: "52px", borderRadius: "13px", border: `1px solid ${c.border}`, display: "grid", placeItems: "center", fontWeight: 600, fontSize: "19px", color: c.muted }}>
-                      {s.domain[0].toUpperCase()}
+                      {dominio[0]?.toUpperCase() ?? "?"}
                     </div>
                     <div>
                       <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
-                        <h1 style={{ margin: 0, fontSize: "26px", fontWeight: 700, letterSpacing: "-0.02em" }}>{s.domain}</h1>
+                        <h1 style={{ margin: 0, fontSize: "26px", fontWeight: 700, letterSpacing: "-0.02em" }}>{dominio}</h1>
                         <span style={{ fontSize: "13px", fontWeight: 600, padding: "5px 11px", borderRadius: "999px", background: tag.bg, color: tag.color }}>
-                          Riesgo {riskName[s.risk]}
+                          Riesgo {riskName[riesgo]}
                         </span>
                       </div>
-                      <div style={{ fontSize: "14px", color: c.muted, marginTop: "6px", display: "flex", gap: "14px" }}>
-                        <span>Último escaneo: {s.date}, {s.time} h</span>
-                        <span>{s.scans} escaneos realizados</span>
+                      <div style={{ fontSize: "14px", color: c.muted, marginTop: "6px" }}>
+                        <span>{total} vulnerabilidades encontradas</span>
                       </div>
                     </div>
                   </div>
                   <div style={{ display: "flex", gap: "10px" }}>
                     <button style={{ display: "inline-flex", alignItems: "center", gap: "7px", background: "#fff", color: c.text, border: `1px solid ${c.border}`, borderRadius: "9px", padding: "9px 14px", fontWeight: 500, fontSize: "13.5px", cursor: "pointer" }}>
                       Descargar reporte PDF
-                    </button>
-                    <button style={{ display: "inline-flex", alignItems: "center", gap: "7px", background: c.primary, color: "#fff", border: 0, borderRadius: "9px", padding: "9px 14px", fontWeight: 600, fontSize: "13.5px", cursor: "pointer", boxShadow: "0 1px 2px rgba(37,99,235,.25)" }}>
-                      Volver a escanear
                     </button>
                   </div>
                 </div>
@@ -444,7 +632,7 @@ function UserDashboard({ usuario, onBack }: UserDashboardProps) {
                   <div style={card}>
                     <div style={{ padding: "20px 22px 0" }}>
                       <div style={{ fontSize: "16px", fontWeight: 600 }}>Vulnerabilidades por severidad</div>
-                      <div style={{ fontSize: "13px", color: c.muted, marginTop: "3px" }}>Hallazgos del último escaneo</div>
+                      <div style={{ fontSize: "13px", color: c.muted, marginTop: "3px" }}>Hallazgos de este escaneo</div>
                     </div>
                     <div style={{ display: "flex", flexDirection: "column", alignItems: "center", padding: "18px 22px 22px" }}>
                       <div style={{ position: "relative", width: "200px", height: "200px", margin: "4px 0 20px" }}>
@@ -462,7 +650,7 @@ function UserDashboard({ usuario, onBack }: UserDashboardProps) {
                           </div>
                         </div>
                       </div>
-                      {/* Lista de severidades. */}
+                      {/* Lista de severidades con conteo y porcentaje. */}
                       <div style={{ width: "100%", display: "grid", gap: "4px" }}>
                         {sevKeys.map((k) => (
                           <div key={k} style={{ display: "grid", gridTemplateColumns: "12px 1fr auto 44px", alignItems: "center", gap: "10px", fontSize: "13.5px", padding: "8px 10px", borderRadius: "8px" }}>
@@ -477,58 +665,59 @@ function UserDashboard({ usuario, onBack }: UserDashboardProps) {
                       <div style={{ width: "100%", marginTop: "18px", paddingTop: "18px", borderTop: "1px solid #F1F2F4" }}>
                         <div style={{ display: "flex", justifyContent: "space-between", fontSize: "13px", color: c.muted }}>
                           <span>Nivel de riesgo del sitio</span>
-                          <b style={{ color: c.text, fontSize: "14px" }}>{s.score} / 100</b>
+                          <b style={{ color: c.text, fontSize: "14px" }}>{detalleReal.risk_score} / 100</b>
                         </div>
                         <div style={{ height: "6px", borderRadius: "999px", background: "#F3F4F6", marginTop: "10px", overflow: "hidden" }}>
-                          <div style={{ width: `${s.score}%`, height: "100%", borderRadius: "999px", background: `linear-gradient(90deg, ${c.severity.low}, ${c.severity.medium} 45%, ${c.severity.high} 75%, ${c.severity.critical})` }} />
+                          <div style={{ width: `${detalleReal.risk_score}%`, height: "100%", borderRadius: "999px", background: `linear-gradient(90deg, ${c.severity.low}, ${c.severity.medium} 45%, ${c.severity.high} 75%, ${c.severity.critical})` }} />
                         </div>
                       </div>
                     </div>
                   </div>
 
-                  {/* COLUMNA DERECHA: lista de hallazgos desplegables. */}
+                  {/* COLUMNA DERECHA: lista de hallazgos reales. */}
                   <div style={card}>
                     <div style={{ padding: "20px 22px 16px" }}>
                       <div style={{ fontSize: "16px", fontWeight: 600 }}>Hallazgos</div>
                       <div style={{ fontSize: "13px", color: c.muted, marginTop: "3px" }}>Haz clic en un hallazgo para ver la descripción y cómo corregirlo</div>
                     </div>
                     <div>
-                      {s.findings.map((f, i) => {
-                        const abiertoEste = abierto === i; // ¿este hallazgo está desplegado?
-                        const sTag = riskTagStyle[f.s];
-                        return (
-                          <div key={i} style={{ borderTop: `1px solid #F1F2F4` }}>
-                            {/* Fila: severidad + título + estado + flecha. Al hacer clic se despliega. */}
-                            <div onClick={() => setAbierto(abiertoEste ? null : i)} style={{ display: "grid", gridTemplateColumns: "96px 1fr 120px 20px", alignItems: "center", gap: "16px", padding: "16px 22px", cursor: "pointer" }}>
-                              <span style={{ fontSize: "12px", fontWeight: 600, padding: "3px 9px", borderRadius: "999px", background: sTag.bg, color: sTag.color, justifySelf: "start" }}>
-                                {sevName[f.s]}
-                              </span>
-                              <div>
-                                <div style={{ fontSize: "14px", fontWeight: 500 }}>{f.t}</div>
-                                <div style={{ fontSize: "12.5px", color: c.muted, marginTop: "3px", fontFamily: "ui-monospace, Menlo, monospace" }}>{f.loc}</div>
+                      {total === 0 ? (
+                        <div style={{ padding: "24px 22px", color: c.muted, fontSize: "14px" }}>
+                          Este escaneo no encontró vulnerabilidades. ¡Buena noticia!
+                        </div>
+                      ) : (
+                        hallazgos.map((f, i) => {
+                          const abiertoEste = abierto === i;
+                          const sKey = sevABackend(f.severity);
+                          const sTag = riskTagStyle[sKey];
+                          return (
+                            <div key={i} style={{ borderTop: `1px solid #F1F2F4` }}>
+                              <div onClick={() => setAbierto(abiertoEste ? null : i)} style={{ display: "grid", gridTemplateColumns: "96px 1fr 20px", alignItems: "center", gap: "16px", padding: "16px 22px", cursor: "pointer" }}>
+                                <span style={{ fontSize: "12px", fontWeight: 600, padding: "3px 9px", borderRadius: "999px", background: sTag.bg, color: sTag.color, justifySelf: "start" }}>
+                                  {sevName[sKey]}
+                                </span>
+                                <div>
+                                  <div style={{ fontSize: "14px", fontWeight: 500 }}>{f.type}</div>
+                                  <div style={{ fontSize: "12.5px", color: c.muted, marginTop: "3px", fontFamily: "ui-monospace, Menlo, monospace" }}>{f.location ?? ""}</div>
+                                </div>
+                                <span style={{ color: "#9CA3AF", transform: abiertoEste ? "rotate(90deg)" : "none", transition: "transform .2s" }}>›</span>
                               </div>
-                              <span style={{ fontSize: "12.5px", color: c.muted, display: "inline-flex", alignItems: "center", gap: "6px" }}>
-                                <span style={{ width: "7px", height: "7px", borderRadius: "50%", border: `1.5px solid ${f.st === "rev" ? c.primary : "#9CA3AF"}`, background: f.st === "rev" ? "#DBE6FE" : "transparent" }} />
-                                {f.st === "rev" ? "En revisión" : "Abierto"}
-                              </span>
-                              <span style={{ color: "#9CA3AF", transform: abiertoEste ? "rotate(90deg)" : "none", transition: "transform .2s" }}>›</span>
+                              {abiertoEste && (
+                                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "24px", padding: "0 22px 20px 134px", fontSize: "13.5px", lineHeight: 1.6, color: "#374151" }}>
+                                  <div>
+                                    <h4 style={{ fontSize: "12px", fontWeight: 600, color: c.muted, textTransform: "uppercase", letterSpacing: ".05em", marginBottom: "6px" }}>Descripción</h4>
+                                    {f.description ?? "Sin descripción."}
+                                  </div>
+                                  <div>
+                                    <h4 style={{ fontSize: "12px", fontWeight: 600, color: c.muted, textTransform: "uppercase", letterSpacing: ".05em", marginBottom: "6px" }}>Cómo corregirlo</h4>
+                                    {f.recommendation ?? "Sin recomendación."}
+                                  </div>
+                                </div>
+                              )}
                             </div>
-                            {/* Cuerpo desplegable: descripción + cómo corregirlo. */}
-                            {abiertoEste && (
-                              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "24px", padding: "0 22px 20px 134px", fontSize: "13.5px", lineHeight: 1.6, color: "#374151" }}>
-                                <div>
-                                  <h4 style={{ fontSize: "12px", fontWeight: 600, color: c.muted, textTransform: "uppercase", letterSpacing: ".05em", marginBottom: "6px" }}>Descripción</h4>
-                                  {f.d}
-                                </div>
-                                <div>
-                                  <h4 style={{ fontSize: "12px", fontWeight: 600, color: c.muted, textTransform: "uppercase", letterSpacing: ".05em", marginBottom: "6px" }}>Cómo corregirlo</h4>
-                                  {f.r}
-                                </div>
-                              </div>
-                            )}
-                          </div>
-                        );
-                      })}
+                          );
+                        })
+                      )}
                     </div>
                   </div>
                 </div>
