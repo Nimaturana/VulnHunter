@@ -77,6 +77,53 @@ async def get_scan(scan_id: str) -> dict:
         raise HTTPException(status_code=404, detail="Escaneo no encontrado")
     return scan_service.serialize(scan)
 
+# ---- Endpoint: detalle de un escaneo CON sus hallazgos (desde la base) ----
+# Devuelve los datos del escaneo y la lista de vulnerabilidades encontradas.
+# Lee desde PostgreSQL (no desde memoria), así que funciona aunque se reinicie el backend.
+# Se llama así: GET /scans/{scan_id}/detalle
+@router.get("/scans/{scan_id}/detalle")
+async def get_scan_detalle(scan_id: str) -> dict:
+    # Importamos aquí dentro para no tocar los imports de arriba.
+    from vulnhunter.database.connection import SessionLocal
+    from vulnhunter.database import crud
+
+    db = SessionLocal()                                   # Abrimos conexión a la base.
+    try:
+        # Buscamos el escaneo por su scan_id público (UUID).
+        scan = crud.obtener_scan(db, scan_id)
+        if scan is None:
+            raise HTTPException(status_code=404, detail="Escaneo no encontrado")
+
+        # Traemos los hallazgos de ese escaneo desde la base.
+        findings = crud.obtener_findings_de_scan(db, scan_id)
+
+        # Armamos la respuesta con los datos del escaneo y sus hallazgos.
+        return {
+            "scan_id": scan.scan_id,
+            "url": scan.url,
+            "status": scan.status,
+            "risk_level": scan.risk_level or "LOW",
+            "risk_score": scan.risk_score or 0,
+            "total_vulnerabilities": scan.total_vulnerabilities or 0,
+            "completed_at": scan.completed_at.isoformat() if scan.completed_at else None,
+            # Convertimos cada hallazgo a un diccionario simple para el frontend.
+            "findings": [
+                {
+                    "type": f.type,
+                    "severity": f.severity,
+                    "location": f.location,
+                    "scanner": f.scanner,
+                    "description": f.description,
+                    "recommendation": f.recommendation,
+                    "confidence": f.confidence,
+                }
+                for f in findings
+            ],
+        }
+    finally:
+        db.close()                                        # Cerramos siempre la conexión.
+
+
 
 @router.get("/scan/{scan_id}/pdf", include_in_schema=False)
 @router.get("/scans/{scan_id}/report.pdf")

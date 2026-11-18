@@ -115,7 +115,7 @@ def listar_scans(db: Session, limit: int = 50, offset: int = 0) -> list[Scan]:
         .limit(limit)
         .all()
     )
-    
+
 def listar_scans_de_usuario(
     db: Session,
     user_id: int,
@@ -136,3 +136,19 @@ def listar_scans_de_usuario(
 def listar_todos_scans(db: Session) -> list[Scan]:
     """Devuelve todos los escaneos (útil para /stats)."""
     return db.query(Scan).all()
+
+def obtener_findings_de_scan(db: Session, scan_id_publico: str) -> list[Finding]:
+    """Devuelve los hallazgos (vulnerabilidades) de un escaneo, buscándolo por su scan_id público (UUID)."""
+    # Primero ubicamos el escaneo por su scan_id público (el texto/UUID).
+    scan = db.query(Scan).filter(Scan.scan_id == scan_id_publico).first()
+    if scan is None:
+        # Si no existe ese escaneo, devolvemos lista vacía.
+        return []
+    # Devolvemos los hallazgos ligados al id interno de ese escaneo.
+    return (
+        db.query(Finding)                          # Consultamos la tabla de hallazgos.
+        .filter(Finding.scan_id == scan.id)        # Solo los de ESTE escaneo (por su id interno).
+        .order_by(Finding.severity.asc())          # Ordenados por severidad (texto).
+        .all()                                      # Ejecutamos y devolvemos la lista.
+    )
+
