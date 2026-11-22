@@ -5,6 +5,8 @@ from fastapi import APIRouter, BackgroundTasks, HTTPException, Query
 from fastapi.responses import FileResponse
 
 from vulnhunter.config import get_settings
+from vulnhunter.database import crud
+from vulnhunter.database.connection import SessionLocal
 from vulnhunter.scans.models import ReportInfo, ScanRequest, ScanSummary
 from vulnhunter.scans.service import scan_service
 from vulnhunter.tasks.dispatcher import enqueue_scan
@@ -57,6 +59,38 @@ async def list_scans(
     status: Optional[str] = None,
 ) -> list[ScanSummary]:
     return scan_service.list_scans(limit=limit, offset=offset, status=status)
+
+
+@router.get("/scans/mios", response_model=list[ScanSummary])
+async def list_my_scans(user_id: int = Query(..., ge=1)) -> list[ScanSummary]:
+    db = SessionLocal()
+    try:
+        return [scan_service._summary_from_database(scan) for scan in crud.listar_scans_de_usuario(db, user_id)]
+    finally:
+        db.close()
+
+
+@router.get("/scans/historial")
+async def scan_history(url: str = Query(..., min_length=1)) -> dict:
+    db = SessionLocal()
+    try:
+        points = []
+        for stored in crud.listar_scans_por_url(db, url):
+            counts = {"crit": 0, "high": 0, "med": 0, "low": 0}
+            for finding in stored.findings:
+                key = {"CRITICAL": "crit", "HIGH": "high", "MEDIUM": "med"}.get(
+                    finding.severity.upper(), "low"
+                )
+                counts[key] += 1
+            points.append({
+                "scan_id": stored.scan_id,
+                "fecha": stored.completed_at or stored.started_at,
+                "score": stored.risk_score or 0,
+                "conteo": counts,
+            })
+        return {"url": url, "historial": points}
+    finally:
+        db.close()
 
 
 @router.get("/scan/{scan_id}", include_in_schema=False)

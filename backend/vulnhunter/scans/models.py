@@ -17,6 +17,7 @@ class ScanRequest(BaseModel):
     url: HttpUrl
     scan_types: list[str] = Field(default_factory=lambda: list(DEFAULT_SCANNERS))
     description: Optional[str] = Field(default=None, max_length=500)
+    requested_by_user_id: Optional[int] = Field(default=None, ge=1)
 
 
 class Finding(BaseModel):

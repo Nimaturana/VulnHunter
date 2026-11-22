@@ -151,3 +151,56 @@ export function riskColor(level: RiskLevel): string {
     INFO: "#60a5fa",
   }[level];
 }
+
+export type DatosEscaneo = { url: string; requested_by_user_id?: number };
+export type EscaneoIniciado = StartScanResponse;
+export type ResumenEscaneo = ScanSummary;
+export type HallazgoBackend = Finding;
+export type DetalleEscaneo = {
+  scan_id: string;
+  url: string;
+  status: string;
+  risk_level: string;
+  risk_score: number;
+  total_vulnerabilities: number;
+  completed_at: string | null;
+  findings: HallazgoBackend[];
+};
+export type PuntoHistorial = {
+  scan_id: string;
+  fecha: string | null;
+  score: number;
+  conteo: { crit: number; high: number; med: number; low: number };
+};
+export type HistorialSitio = { url: string; historial: PuntoHistorial[] };
+
+export function iniciarEscaneo(datos: DatosEscaneo): Promise<EscaneoIniciado> {
+  return apiRequest<EscaneoIniciado>("/scans", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      ...datos,
+      scan_types: [...SCANNERS],
+      description: "Escaneo iniciado desde el panel de usuario",
+    }),
+  });
+}
+
+export function obtenerMisEscaneos(userId: number): Promise<ResumenEscaneo[]> {
+  return apiRequest<ResumenEscaneo[]>(`/scans/mios?user_id=${userId}`);
+}
+
+export function obtenerEscaneo(scanId: string): Promise<ScanDetail> {
+  return getScan(scanId);
+}
+
+export async function obtenerDetalleEscaneo(scanId: string): Promise<DetalleEscaneo> {
+  const scan = await getScan(scanId);
+  return { ...scan, findings: scan.vulnerabilities };
+}
+
+export function obtenerHistorial(url: string): Promise<HistorialSitio> {
+  return apiRequest<HistorialSitio>(`/scans/historial?url=${encodeURIComponent(url)}`);
+}
+
+export { ApiError } from "./client";

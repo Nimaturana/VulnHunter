@@ -1,137 +1,116 @@
-import { useEffect, useState } from "react";
+// Paleta central para mantener los mismos colores que el resto del panel.
+import { theme } from "../../../shared/styles/theme";
 
-import {
-  formatDate,
-  getReportInfo,
-  reportUrl,
-  RISK_LABELS,
-  riskColor,
-  type ReportInfo,
-} from "../../../shared/api/scans";
-import { useScans } from "../../../shared/hooks/useScans";
-import {
-  cardStyle,
-  errorStyle,
-  pageStyle,
-  primaryButtonStyle,
-  tableCellStyle,
-  tableStyle,
-  tableWrapStyle,
-} from "../../../shared/styles/layout";
+const c = theme.colors;
+
+// Datos de ejemplo de los reportes (luego vendrán del backend).
+const reports = [
+  { site: "https://tienda-ejemplo.cl", risk: "ALTO", date: "06/09/2026", scanId: "SCAN-001" },
+  { site: "https://empresa-demo.cl", risk: "MEDIO", date: "05/09/2026", scanId: "SCAN-002" },
+  { site: "https://portal-prueba.cl", risk: "BAJO", date: "04/09/2026", scanId: "SCAN-003" },
+];
+
+// Etiquetas de riesgo con su color de fondo y texto.
+const riskTag: Record<string, { bg: string; color: string; label: string }> = {
+  ALTO: { bg: "#FFF7ED", color: c.severity.high, label: "Alto" },
+  MEDIO: { bg: "#FEFCE8", color: "#A16207", label: "Medio" },
+  BAJO: { bg: "#F0FDF4", color: c.severity.low, label: "Bajo" },
+};
+
+// Tarjeta blanca base.
+const card: React.CSSProperties = {
+  backgroundColor: c.surface,
+  border: `1px solid ${c.border}`,
+  borderRadius: "14px",
+  boxShadow: "0 1px 2px rgba(16,24,40,.04), 0 4px 16px rgba(16,24,40,.04)",
+};
+
+// Encabezados de la tabla.
+const thStyle: React.CSSProperties = {
+  fontSize: "12px",
+  fontWeight: 500,
+  color: c.muted,
+  textAlign: "left",
+  padding: "11px 22px",
+  background: "#FAFAFB",
+  borderTop: `1px solid ${c.border}`,
+  borderBottom: `1px solid ${c.border}`,
+};
 
 function Reports() {
-  const { scans, loading, error } = useScans();
-  const [metadata, setMetadata] = useState<Record<string, ReportInfo>>({});
-  const reports = scans.filter(
-    (scan) => scan.status === "completed" || scan.status === "partial",
-  );
-
-  useEffect(() => {
-    let cancelled = false;
-    void Promise.allSettled(
-      reports
-        .filter((report) => report.report_status !== "not_generated")
-        .map((report) => getReportInfo(report.scan_id)),
-    ).then((results) => {
-      if (cancelled) return;
-      const next: Record<string, ReportInfo> = {};
-      for (const result of results) {
-        if (result.status === "fulfilled") next[result.value.scan_id] = result.value;
-      }
-      setMetadata(next);
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [scans]);
-
-  const formatBytes = (bytes: number | null | undefined) => {
-    if (bytes == null) return "—";
-    return `${(bytes / 1024).toFixed(1)} KB`;
-  };
-
   return (
-    <main style={pageStyle}>
-      <header style={{ marginBottom: 28 }}>
-        <h1 style={{ margin: 0, fontSize: 30 }}>Reportes</h1>
-        <p style={{ color: "#94AFC7", marginTop: 8 }}>
-          Descarga el PDF generado por el backend para cada análisis finalizado.
+    <main style={{ flex: 1, padding: "36px 44px 48px", background: c.background, color: c.text }}>
+      {/* ───────── ENCABEZADO ───────── */}
+      <header style={{ marginBottom: "28px" }}>
+        <h1 style={{ margin: 0, fontSize: "30px", fontWeight: 700, letterSpacing: "-0.02em" }}>Reportes</h1>
+        <p style={{ color: c.muted, fontSize: "15px", margin: "6px 0 0" }}>
+          Genera y descarga reportes PDF de los escaneos
         </p>
       </header>
 
-      {error && <div style={errorStyle}>{error}</div>}
-
-      <section style={cardStyle}>
-        <div style={{ display: "flex", justifyContent: "space-between", gap: 16 }}>
-          <h3 style={{ marginTop: 0 }}>Reportes disponibles</h3>
-          <span style={{ color: "#94AFC7" }}>{reports.length} reporte(s)</span>
+      {/* ───────── TARJETA CON LA TABLA ───────── */}
+      <section style={card}>
+        {/* Cabecera: título + contador de escaneos disponibles. */}
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "20px 22px 16px" }}>
+          <div style={{ fontSize: "16px", fontWeight: 600 }}>Reportes disponibles</div>
+          <span style={{ fontSize: "13px", color: c.muted }}>{reports.length} escaneos disponibles</span>
         </div>
-        <div style={tableWrapStyle}>
-          <table style={tableStyle}>
-            <thead>
-              <tr style={{ color: "#94AFC7" }}>
-                <th style={tableCellStyle}>Sitio</th>
-                <th style={tableCellStyle}>ID escaneo</th>
-                <th style={tableCellStyle}>Riesgo</th>
-                <th style={tableCellStyle}>Hallazgos</th>
-                <th style={tableCellStyle}>Fecha</th>
-                <th style={tableCellStyle}>Estado PDF</th>
-                <th style={tableCellStyle}>Tamaño</th>
-                <th style={tableCellStyle}>Descargas</th>
-                <th style={tableCellStyle}>SHA-256</th>
-                <th style={tableCellStyle}>Acción</th>
-              </tr>
-            </thead>
-            <tbody>
-              {reports.map((report) => (
-                <tr key={report.scan_id}>
-                  <td style={tableCellStyle}>{report.url}</td>
-                  <td style={{ ...tableCellStyle, color: "#94AFC7" }}>
-                    {report.scan_id.slice(0, 8)}
+
+        <table style={{ width: "100%", borderCollapse: "collapse" }}>
+          <thead>
+            <tr>
+              <th style={{ ...thStyle, width: "30%" }}>Sitio</th>
+              <th style={thStyle}>ID escaneo</th>
+              <th style={thStyle}>Riesgo</th>
+              <th style={thStyle}>Fecha</th>
+              <th style={{ ...thStyle, width: "200px" }}>Acción</th>
+            </tr>
+          </thead>
+          <tbody>
+            {reports.map((report) => {
+              const tag = riskTag[report.risk];                 // etiqueta de riesgo
+              const domain = report.site.replace("https://", "");
+              return (
+                <tr key={report.scanId} style={{ borderBottom: "1px solid #F1F2F4" }}>
+                  {/* Columna Sitio: cuadrito con inicial + dominio + url. */}
+                  <td style={{ padding: "14px 22px", fontSize: "14px" }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+                      <div style={{ width: "32px", height: "32px", borderRadius: "8px", border: `1px solid ${c.border}`, display: "grid", placeItems: "center", fontWeight: 600, fontSize: "13px", color: c.muted }}>
+                        {domain[0].toUpperCase()}
+                      </div>
+                      <div>
+                        <div style={{ fontWeight: 500 }}>{domain}</div>
+                        <div style={{ fontSize: "12.5px", color: c.muted }}>{report.site}</div>
+                      </div>
+                    </div>
                   </td>
-                  <td style={{ ...tableCellStyle, color: riskColor(report.risk_level) }}>
-                    <strong>{RISK_LABELS[report.risk_level]}</strong>
+                  {/* Columna ID escaneo: en fuente monoespaciada (estilo "código"). */}
+                  <td style={{ padding: "14px 22px", fontSize: "13px", fontFamily: "ui-monospace, Menlo, monospace", color: c.muted }}>
+                    {report.scanId}
                   </td>
-                  <td style={tableCellStyle}>{report.total_vulnerabilities}</td>
-                  <td style={{ ...tableCellStyle, color: "#94AFC7" }}>
-                    {formatDate(report.completed_at)}
+                  {/* Columna Riesgo: etiqueta de color. */}
+                  <td style={{ padding: "14px 22px" }}>
+                    <span style={{ fontSize: "12px", fontWeight: 600, padding: "3px 9px", borderRadius: "999px", background: tag.bg, color: tag.color }}>
+                      {tag.label}
+                    </span>
                   </td>
-                  <td style={tableCellStyle}>
-                    {{
-                      not_generated: "Se genera al descargar",
-                      generating: "Generando…",
-                      generated: "Disponible",
-                      failed: "Error",
-                    }[report.report_status]}
-                  </td>
-                  <td style={tableCellStyle}>
-                    {formatBytes(metadata[report.scan_id]?.size_bytes)}
-                  </td>
-                  <td style={tableCellStyle}>
-                    {metadata[report.scan_id]?.download_count ?? 0}
-                  </td>
-                  <td style={{ ...tableCellStyle, color: "#94AFC7" }}>
-                    {metadata[report.scan_id]?.sha256?.slice(0, 12) ?? "—"}
-                  </td>
-                  <td style={tableCellStyle}>
-                    <a href={reportUrl(report.scan_id)} style={primaryButtonStyle}>
-                      {report.report_status === "generated" ? "Descargar PDF" : "Generar PDF"}
-                    </a>
+                  {/* Columna Fecha: en gris. */}
+                  <td style={{ padding: "14px 22px", fontSize: "14px", color: c.muted }}>{report.date}</td>
+                  {/* Columna Acción: botón azul "Generar PDF". */}
+                  <td style={{ padding: "14px 22px" }}>
+                    <button style={{ display: "inline-flex", alignItems: "center", gap: "7px", background: c.primary, color: "#fff", border: "none", borderRadius: "9px", padding: "8px 14px", fontWeight: 600, fontSize: "13.5px", cursor: "pointer", boxShadow: "0 1px 2px rgba(37,99,235,.25)" }}>
+                      Generar PDF
+                    </button>
                   </td>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-        {loading && <p style={{ color: "#94AFC7" }}>Cargando reportes…</p>}
-        {!loading && reports.length === 0 && (
-          <p style={{ color: "#94AFC7" }}>
-            Los reportes aparecerán cuando termine al menos un escaneo.
-          </p>
-        )}
+              );
+            })}
+          </tbody>
+        </table>
       </section>
     </main>
   );
 }
 
 export default Reports;
+

@@ -18,6 +18,8 @@ dependencies = [
   "psycopg[binary]>=3.2,<4",
   "alembic>=1.14,<2",
   "python-dotenv>=1.0,<2",
+  "bcrypt>=4.0,<6",
+  "email-validator>=2.0,<3",
 ]
 
 [project.optional-dependencies]
