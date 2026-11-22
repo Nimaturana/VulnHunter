@@ -1,4 +1,3 @@
-
 import { useState } from "react";
 import logo from "../assets/vulnhunter-logo.png";
 
@@ -15,20 +14,24 @@ import {
   ADMIN_NAVIGATION,
   AdminRouter,
 } from "./router";
+// Traemos la paleta central para usar los mismos colores que el Dashboard.
+import { theme } from "../shared/styles/theme";
+
+// Atajo para no escribir theme.colors cada vez.
+const c = theme.colors;
 
 function App() {
   const { t } = useLanguage();
 
+  // screen: en qué pantalla general estamos (bienvenida, login o la app).
   const [screen, setScreen] = useState<Screen>("welcome");
+  // userRole: con qué rol entró el usuario ("analyst" = admin, "user" = cliente).
   const [userRole, setUserRole] = useState<UserRole>(null);
+  const [usuario, setUsuario] = useState<import("../shared/api/auth").Usuario | null>(null);
+  // activePage: qué sección del menú admin está seleccionada.
+  const [activePage, setActivePage] = useState<AdminPage>("dashboard");
 
-  const [activePage, setActivePage] =
-    useState<AdminPage>("dashboard");
-
-  // =========================
-  // BIENVENIDA
-  // =========================
-
+  // ========================= PANTALLA DE BIENVENIDA =========================
   if (screen === "welcome") {
     return (
       <Welcome
@@ -38,67 +41,79 @@ function App() {
     );
   }
 
-  // =========================
-  // LOGIN
-  // =========================
-
+  // ========================= PANTALLA DE LOGIN =========================
+    // ========================= PANTALLA DE LOGIN =========================
+  // En vez de mostrar solo el login, mostramos la BIENVENIDA de fondo
+  // y el LOGIN flotando encima como modal (con su fondo difuminado).
+  // Así se logra el efecto de "cuadradito al centro con la página atrás".
   if (screen === "login") {
     return (
-      <Login
-        onBack={() => setScreen("welcome")}
-        onLogin={(role) => {
-          setUserRole(role);
-          setScreen("app");
+      <>
+        {/* Capa de fondo: la misma pantalla de bienvenida, quieta detrás. */}
+        {/* Sus botones no hacen falta aquí, pero los dejamos conectados igual. */}
+        <Welcome
+          onStart={() => setScreen("login")}
+          onLogin={() => setScreen("login")}
+        />
 
-          if (role === "analyst") {
-            setActivePage("dashboard");
-          }
-        }}
-      />
+        {/* Capa de encima: el login como modal (trae su propio scrim difuminado). */}
+        <Login
+          onBack={() => setScreen("welcome")}
+          onLogin={(role, usuarioLogueado) => {
+            setUserRole(role);        // guardamos el rol elegido
+            setUsuario(usuarioLogueado); // guardamos el usuario completo (nombre, id, email)
+            setScreen("app");         // pasamos a la aplicación
+            if (role === "analyst") {
+              setActivePage("dashboard"); // el admin arranca en el Dashboard
+            }
+          }}
+        />
+      </>
     );
   }
 
-  // =========================
-  // PANEL USUARIO / CLIENTE
-  // =========================
 
+
+  // ========================= PANEL DEL USUARIO / CLIENTE =========================
   if (screen === "app" && userRole === "user") {
     return (
       <UserDashboard
+        usuario={usuario}
         onBack={() => {
           setUserRole(null);
+          setUsuario(null);
           setScreen("welcome");
         }}
       />
     );
   }
 
-  // =========================
-  // PANEL ANALISTA / ADMIN
-  // =========================
-
+  // ========================= PANEL DEL ANALISTA / ADMIN =========================
   if (screen === "app" && userRole === "analyst") {
     return (
+      // Contenedor general: fondo claro y disposición en fila (barra lateral + contenido).
       <div
         style={{
           minHeight: "100vh",
-          backgroundColor: "#0B1626",
-          color: "#f8fafc",
-          fontFamily: "Arial, sans-serif",
+          backgroundColor: c.background, // fondo gris suave claro
+          color: c.text,
+          fontFamily: "'Inter', Arial, sans-serif",
           display: "flex",
         }}
       >
-        {/* SIDEBAR */}
+        {/* ───────── BARRA LATERAL (ahora blanca) ───────── */}
         <aside
           style={{
             width: "240px",
             minWidth: "240px",
-            backgroundColor: "#0B1626",
-            borderRight: "1px solid #1B2B40",
+            backgroundColor: c.surface,          // blanco
+            borderRight: `1px solid ${c.border}`, // borde gris suave a la derecha
             padding: "28px 20px",
+            display: "flex",
+            flexDirection: "column",
           }}
         >
-          {/* VOLVER */}
+          {/* BOTÓN VOLVER: cierra sesión y vuelve a la bienvenida. */}
           <button
             onClick={() => {
               setUserRole(null);
@@ -107,7 +122,7 @@ function App() {
             style={{
               backgroundColor: "transparent",
               border: "none",
-              color: "#94AFC7",
+              color: c.muted,
               cursor: "pointer",
               fontSize: "14px",
               padding: "0",
@@ -120,7 +135,7 @@ function App() {
             ← {t("menu.back")}
           </button>
 
-          {/* LOGO */}
+          {/* LOGO: imagen + nombre VulnHunter. */}
           <div
             style={{
               display: "flex",
@@ -133,43 +148,20 @@ function App() {
             <img
               src={logo}
               alt="VulnHunter"
-              style={{
-                width: "58px",
-                height: "58px",
-                objectFit: "contain",
-              }}
+              style={{ width: "58px", height: "58px", objectFit: "contain" }}
             />
-
-            <span
-              style={{
-                fontSize: "21px",
-                fontWeight: "bold",
-                color: "#f8fafc",
-              }}
-            >
+            <span style={{ fontSize: "21px", fontWeight: "bold", color: c.text }}>
               VulnHunter
             </span>
           </div>
 
-          {/* MENÚ ADMIN */}
-          <nav
-            style={{
-              display: "flex",
-              flexDirection: "column",
-              gap: "12px",
-            }}
-          >
+          {/* MENÚ ADMIN: recorre las opciones y marca la activa en azul. */}
+          <nav style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
             {ADMIN_NAVIGATION.map((item) => (
               <button
                 key={item.id}
-                onClick={() =>
-                  setActivePage(item.id)
-                }
-                style={
-                  activePage === item.id
-                    ? activeMenuStyle
-                    : menuStyle
-                }
+                onClick={() => setActivePage(item.id)} // cambia la sección activa
+                style={activePage === item.id ? activeMenuStyle : menuStyle}
               >
                 {item.icon} {t(item.labelKey)}
               </button>
@@ -177,6 +169,7 @@ function App() {
           </nav>
         </aside>
 
+        {/* CONTENIDO: muestra la sección activa (Dashboard, Sitios, Escaneos, etc.). */}
         <AdminRouter activePage={activePage} />
       </div>
     );
@@ -185,23 +178,27 @@ function App() {
   return null;
 }
 
+// Estilo de cada opción del menú cuando NO está activa (texto gris, sin fondo).
 const menuStyle = {
   backgroundColor: "transparent",
   border: "1px solid transparent",
-  color: "#94AFC7",
-  padding: "12px 14px",
-  borderRadius: "10px",
+  color: theme.colors.muted,
+  padding: "11px 14px",
+  borderRadius: "8px",
   textAlign: "left" as const,
   cursor: "pointer",
-  fontSize: "15px",
+  fontSize: "14px",
+  fontWeight: 500,
   width: "100%",
 };
 
+// Estilo de la opción ACTIVA: fondo azul clarito y texto azul (igual que el diseño).
 const activeMenuStyle = {
   ...menuStyle,
-  backgroundColor: "#123B66",
-  color: "#F8FAFC",
-  border: "1px solid #29C7F6",
+  backgroundColor: "#EFF4FF",
+  color: theme.colors.primary,
+  border: "1px solid transparent",
 };
 
 export default App;
+

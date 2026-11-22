@@ -1,135 +1,111 @@
-import { useEffect, useState } from "react";
+// Paleta central para mantener los mismos colores que el resto del panel.
+import { theme } from "../../../shared/styles/theme";
 
-import {
-  getScan,
-  RISK_LABELS,
-  riskColor,
-  type Finding,
-} from "../../../shared/api/scans";
-import { useScans } from "../../../shared/hooks/useScans";
-import {
-  cardStyle,
-  errorStyle,
-  pageStyle,
-  secondaryButtonStyle,
-  tableCellStyle,
-  tableStyle,
-  tableWrapStyle,
-} from "../../../shared/styles/layout";
+const c = theme.colors;
 
-type FindingRow = Finding & { scanId: string; url: string };
+// Datos de ejemplo de los hallazgos (luego vendrán del backend).
+const findings = [
+  { vulnerability: "XSS reflejado", severity: "ALTA", site: "https://tienda-ejemplo.cl", status: "Abierto" },
+  { vulnerability: "Headers de seguridad faltantes", severity: "MEDIA", site: "https://empresa-demo.cl", status: "Abierto" },
+  { vulnerability: "Configuración TLS débil", severity: "BAJA", site: "https://portal-prueba.cl", status: "Revisado" },
+  { vulnerability: "Posible inyección SQL", severity: "CRÍTICA", site: "https://tienda-ejemplo.cl", status: "Abierto" },
+];
+
+// Etiquetas de severidad: cada nivel con su fondo y color de texto.
+const sevTag: Record<string, { bg: string; color: string; label: string }> = {
+  "CRÍTICA": { bg: "#FEF2F2", color: c.severity.critical, label: "Crítica" },
+  "ALTA": { bg: "#FFF7ED", color: c.severity.high, label: "Alta" },
+  "MEDIA": { bg: "#FEFCE8", color: "#A16207", label: "Media" },
+  "BAJA": { bg: "#F0FDF4", color: c.severity.low, label: "Baja" },
+};
+
+// Tarjeta blanca base.
+const card: React.CSSProperties = {
+  backgroundColor: c.surface,
+  border: `1px solid ${c.border}`,
+  borderRadius: "14px",
+  boxShadow: "0 1px 2px rgba(16,24,40,.04), 0 4px 16px rgba(16,24,40,.04)",
+};
+
+// Encabezados de la tabla.
+const thStyle: React.CSSProperties = {
+  fontSize: "12px",
+  fontWeight: 500,
+  color: c.muted,
+  textAlign: "left",
+  padding: "11px 22px",
+  background: "#FAFAFB",
+  borderTop: `1px solid ${c.border}`,
+  borderBottom: `1px solid ${c.border}`,
+};
 
 function Findings() {
-  const { scans, loading: scansLoading, error } = useScans();
-  const [findings, setFindings] = useState<FindingRow[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [selected, setSelected] = useState<FindingRow | null>(null);
-
-  useEffect(() => {
-    const finished = scans.filter(
-      (scan) => scan.status === "completed" || scan.status === "partial",
-    );
-    if (finished.length === 0) {
-      setFindings([]);
-      return;
-    }
-
-    let cancelled = false;
-    setLoading(true);
-    void Promise.all(
-      finished.map(async (summary) => {
-        const detail = await getScan(summary.scan_id);
-        return detail.vulnerabilities.map((finding) => ({
-          ...finding,
-          scanId: summary.scan_id,
-          url: summary.url,
-        }));
-      }),
-    )
-      .then((groups) => {
-        if (!cancelled) setFindings(groups.flat());
-      })
-      .catch(() => {
-        if (!cancelled) setFindings([]);
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [scans]);
-
   return (
-    <main style={pageStyle}>
-      <header style={{ marginBottom: 28 }}>
-        <h1 style={{ margin: 0, fontSize: 30 }}>Hallazgos</h1>
-        <p style={{ color: "#94AFC7", marginTop: 8 }}>
-          Evidencias y recomendaciones obtenidas de los escaneos reales.
+    <main style={{ flex: 1, padding: "36px 44px 48px", background: c.background, color: c.text }}>
+      {/* ───────── ENCABEZADO ───────── */}
+      <header style={{ marginBottom: "28px" }}>
+        <h1 style={{ margin: 0, fontSize: "30px", fontWeight: 700, letterSpacing: "-0.02em" }}>Hallazgos</h1>
+        <p style={{ color: c.muted, fontSize: "15px", margin: "6px 0 0" }}>
+          Revisa las vulnerabilidades detectadas
         </p>
       </header>
 
-      {error && <div style={errorStyle}>{error}</div>}
-
-      <section style={cardStyle}>
-        <div style={{ display: "flex", justifyContent: "space-between", gap: 16 }}>
-          <h3 style={{ marginTop: 0 }}>Vulnerabilidades detectadas</h3>
-          <span style={{ color: "#94AFC7" }}>{findings.length} hallazgo(s)</span>
+      {/* ───────── TARJETA CON LA TABLA ───────── */}
+      <section style={card}>
+        {/* Cabecera: título + contador de hallazgos. */}
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "20px 22px 16px" }}>
+          <div style={{ fontSize: "16px", fontWeight: 600 }}>Vulnerabilidades detectadas</div>
+          <span style={{ fontSize: "13px", color: c.muted }}>{findings.length} hallazgos</span>
         </div>
-        <div style={tableWrapStyle}>
-          <table style={tableStyle}>
-            <thead>
-              <tr style={{ color: "#94AFC7" }}>
-                <th style={tableCellStyle}>Vulnerabilidad</th>
-                <th style={tableCellStyle}>Severidad</th>
-                <th style={tableCellStyle}>Sitio</th>
-                <th style={tableCellStyle}>Scanner</th>
-                <th style={tableCellStyle}>Confianza</th>
-                <th style={tableCellStyle}>Acción</th>
-              </tr>
-            </thead>
-            <tbody>
-              {findings.map((finding, index) => (
-                <tr key={`${finding.scanId}-${finding.type}-${finding.location}-${index}`}>
-                  <td style={tableCellStyle}>{finding.type}</td>
-                  <td style={{ ...tableCellStyle, color: riskColor(finding.severity) }}>
-                    <strong>{RISK_LABELS[finding.severity]}</strong>
+
+        <table style={{ width: "100%", borderCollapse: "collapse" }}>
+          <thead>
+            <tr>
+              <th style={{ ...thStyle, width: "30%" }}>Vulnerabilidad</th>
+              <th style={thStyle}>Severidad</th>
+              <th style={thStyle}>Sitio</th>
+              <th style={thStyle}>Estado</th>
+              <th style={{ ...thStyle, width: "180px" }}>Acciones</th>
+            </tr>
+          </thead>
+          <tbody>
+            {findings.map((finding) => {
+              const tag = sevTag[finding.severity];              // etiqueta de severidad
+              const abierto = finding.status === "Abierto";      // para el color del estado
+              return (
+                <tr key={`${finding.vulnerability}-${finding.site}`} style={{ borderBottom: "1px solid #F1F2F4" }}>
+                  {/* Columna Vulnerabilidad: nombre en negrita media. */}
+                  <td style={{ padding: "14px 22px", fontSize: "14px", fontWeight: 500 }}>{finding.vulnerability}</td>
+                  {/* Columna Severidad: etiqueta de color. */}
+                  <td style={{ padding: "14px 22px" }}>
+                    <span style={{ fontSize: "12px", fontWeight: 600, padding: "3px 9px", borderRadius: "999px", background: tag.bg, color: tag.color }}>
+                      {tag.label}
+                    </span>
                   </td>
-                  <td style={tableCellStyle}>{finding.url}</td>
-                  <td style={tableCellStyle}>{finding.scanner}</td>
-                  <td style={tableCellStyle}>{finding.confidence}</td>
-                  <td style={tableCellStyle}>
-                    <button onClick={() => setSelected(finding)} style={secondaryButtonStyle}>
+                  {/* Columna Sitio: la url en texto gris. */}
+                  <td style={{ padding: "14px 22px", fontSize: "14px", color: c.muted }}>{finding.site}</td>
+                  {/* Columna Estado: puntito + texto (azul si Abierto, verde si Revisado). */}
+                  <td style={{ padding: "14px 22px", fontSize: "13.5px" }}>
+                    <span style={{ display: "inline-flex", alignItems: "center", gap: "7px", fontWeight: 500, color: abierto ? c.primary : c.severity.low }}>
+                      <span style={{ width: "7px", height: "7px", borderRadius: "50%", background: abierto ? c.primary : c.severity.low }} />
+                      {finding.status}
+                    </span>
+                  </td>
+                  {/* Columna Acciones: botón secundario "Ver detalle". */}
+                  <td style={{ padding: "14px 22px" }}>
+                    <button style={{ background: "#fff", color: c.text, border: `1px solid ${c.border}`, borderRadius: "9px", padding: "7px 13px", fontWeight: 500, fontSize: "13.5px", cursor: "pointer" }}>
                       Ver detalle
                     </button>
                   </td>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-        {(loading || scansLoading) && <p style={{ color: "#94AFC7" }}>Cargando hallazgos…</p>}
-        {!loading && !scansLoading && findings.length === 0 && (
-          <p style={{ color: "#94AFC7" }}>No hay hallazgos disponibles.</p>
-        )}
+              );
+            })}
+          </tbody>
+        </table>
       </section>
-
-      {selected && (
-        <section style={{ ...cardStyle, marginTop: 20 }}>
-          <div style={{ display: "flex", justifyContent: "space-between", gap: 20 }}>
-            <h3 style={{ marginTop: 0 }}>{selected.type}</h3>
-            <button onClick={() => setSelected(null)} style={secondaryButtonStyle}>
-              Cerrar
-            </button>
-          </div>
-          <p><strong>Ubicación:</strong> {selected.location}</p>
-          <p><strong>Descripción:</strong> {selected.description || "Sin descripción adicional"}</p>
-          <p><strong>Evidencia:</strong> {selected.evidence || "Requiere validación manual"}</p>
-          <p><strong>Recomendación:</strong> {selected.recommendation}</p>
-        </section>
-      )}
     </main>
   );
 }
 
 export default Findings;
+

@@ -27,6 +27,12 @@ class User(Base):
     id = Column(Integer, primary_key=True, index=True)
     email = Column(String(150), unique=True, nullable=False)
     hashed_password = Column(String(255), nullable=False)
+    nombre = Column(String(100), nullable=False, default="Usuario", server_default="Usuario")
+    apellido = Column(String(100), nullable=False, default="VulnHunter", server_default="VulnHunter")
+    rut = Column(String(20), unique=True, nullable=True)
+    telefono = Column(String(30), nullable=True)
+    fecha_nacimiento = Column(String(20), nullable=True)
+    role = Column(String(20), nullable=False, default="user", server_default="user")
     is_active = Column(Boolean, nullable=False, default=True, server_default=text("true"))
     created_at = Column(
         DateTime(timezone=True),

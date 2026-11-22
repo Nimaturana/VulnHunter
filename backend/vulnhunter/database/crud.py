@@ -217,5 +217,18 @@ def listar_todos_scans(db: Session) -> list[Scan]:
     return db.query(Scan).all()
 
 
+def listar_scans_de_usuario(db: Session, user_id: int) -> list[Scan]:
+    return (
+        db.query(Scan)
+        .filter(Scan.requested_by_user_id == user_id)
+        .order_by(Scan.started_at.desc())
+        .all()
+    )
+
+
+def listar_scans_por_url(db: Session, url: str) -> list[Scan]:
+    return db.query(Scan).filter(Scan.url == url).order_by(Scan.started_at.asc()).all()
+
+
 def contar_scans_en_ejecucion(db: Session) -> int:
     return db.query(Scan).filter(Scan.status == "running").count()
