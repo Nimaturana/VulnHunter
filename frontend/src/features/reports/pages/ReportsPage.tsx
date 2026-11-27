@@ -1,116 +1,25 @@
-// Paleta central para mantener los mismos colores que el resto del panel.
+import { useEffect, useState } from "react";
+import type { Usuario } from "../../../shared/api/auth";
+import { downloadReport, listScans, obtenerMisEscaneos, type RiskLevel, type ScanSummary } from "../../../shared/api/scans";
 import { theme } from "../../../shared/styles/theme";
 
 const c = theme.colors;
-
-// Datos de ejemplo de los reportes (luego vendrán del backend).
-const reports = [
-  { site: "https://tienda-ejemplo.cl", risk: "ALTO", date: "06/09/2026", scanId: "SCAN-001" },
-  { site: "https://empresa-demo.cl", risk: "MEDIO", date: "05/09/2026", scanId: "SCAN-002" },
-  { site: "https://portal-prueba.cl", risk: "BAJO", date: "04/09/2026", scanId: "SCAN-003" },
+const DEMO: ScanSummary[] = [
+  { scan_id: "SCAN-DEMO-001", url: "https://tienda-ejemplo.cl", status: "completed", risk_level: "HIGH", total_vulnerabilities: 5, started_at: "2026-09-06T10:00:00Z", completed_at: "2026-09-06T10:04:00Z", progress_percentage: 100, current_scanner: null, task_id: null, execution_mode: "celery", queued_at: null, report_status: "generated" },
+  { scan_id: "SCAN-DEMO-002", url: "https://empresa-demo.cl", status: "completed", risk_level: "MEDIUM", total_vulnerabilities: 3, started_at: "2026-09-05T10:00:00Z", completed_at: "2026-09-05T10:04:00Z", progress_percentage: 100, current_scanner: null, task_id: null, execution_mode: "celery", queued_at: null, report_status: "generated" },
 ];
+const tags: Record<RiskLevel, [string, string, string]> = { CRITICAL: ["#FEF2F2", c.severity.critical, "Crítico"], HIGH: ["#FFF7ED", c.severity.high, "Alto"], MEDIUM: ["#FEFCE8", "#A16207", "Medio"], LOW: ["#F0FDF4", c.severity.low, "Bajo"], INFO: ["#EFF6FF", c.primary, "Informativo"] };
+const card: React.CSSProperties = { background: c.surface, border: `1px solid ${c.border}`, borderRadius: 14 };
+const th: React.CSSProperties = { padding: "11px 22px", textAlign: "left", color: c.muted, fontSize: 12, background: "#FAFAFB", borderTop: `1px solid ${c.border}` };
 
-// Etiquetas de riesgo con su color de fondo y texto.
-const riskTag: Record<string, { bg: string; color: string; label: string }> = {
-  ALTO: { bg: "#FFF7ED", color: c.severity.high, label: "Alto" },
-  MEDIO: { bg: "#FEFCE8", color: "#A16207", label: "Medio" },
-  BAJO: { bg: "#F0FDF4", color: c.severity.low, label: "Bajo" },
-};
+export default function Reports({ readOnly = false, currentUser }: { readOnly?: boolean; currentUser: Usuario | null }) {
+  const [reports, setReports] = useState<ScanSummary[]>(readOnly ? DEMO : []);
+  const [message, setMessage] = useState("");
+  useEffect(() => {
+    if (readOnly) { setReports(DEMO); return; }
+    (currentUser?.role === "admin" ? listScans() : obtenerMisEscaneos()).then((items) => setReports(items.filter((scan) => scan.status === "completed" || scan.status === "partial"))).catch((reason) => setMessage(reason instanceof Error ? reason.message : "No fue posible cargar los reportes."));
+  }, [readOnly, currentUser?.id, currentUser?.role]);
 
-// Tarjeta blanca base.
-const card: React.CSSProperties = {
-  backgroundColor: c.surface,
-  border: `1px solid ${c.border}`,
-  borderRadius: "14px",
-  boxShadow: "0 1px 2px rgba(16,24,40,.04), 0 4px 16px rgba(16,24,40,.04)",
-};
-
-// Encabezados de la tabla.
-const thStyle: React.CSSProperties = {
-  fontSize: "12px",
-  fontWeight: 500,
-  color: c.muted,
-  textAlign: "left",
-  padding: "11px 22px",
-  background: "#FAFAFB",
-  borderTop: `1px solid ${c.border}`,
-  borderBottom: `1px solid ${c.border}`,
-};
-
-function Reports({ readOnly = false }: { readOnly?: boolean }) {
-  return (
-    <main className="responsive-page" style={{ flex: 1, padding: "36px 44px 48px", background: c.background, color: c.text }}>
-      {/* ───────── ENCABEZADO ───────── */}
-      <header style={{ marginBottom: "28px" }}>
-        <h1 style={{ margin: 0, fontSize: "30px", fontWeight: 700, letterSpacing: "-0.02em" }}>Reportes</h1>
-        <p style={{ color: c.muted, fontSize: "15px", margin: "6px 0 0" }}>
-          Genera y descarga reportes PDF de los escaneos
-        </p>
-      </header>
-
-      {/* ───────── TARJETA CON LA TABLA ───────── */}
-      <section className="responsive-table-card" style={card}>
-        {/* Cabecera: título + contador de escaneos disponibles. */}
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "20px 22px 16px" }}>
-          <div style={{ fontSize: "16px", fontWeight: 600 }}>Reportes disponibles</div>
-          <span style={{ fontSize: "13px", color: c.muted }}>{reports.length} escaneos disponibles</span>
-        </div>
-
-        <table style={{ width: "100%", borderCollapse: "collapse" }}>
-          <thead>
-            <tr>
-              <th style={{ ...thStyle, width: "30%" }}>Sitio</th>
-              <th style={thStyle}>ID escaneo</th>
-              <th style={thStyle}>Riesgo</th>
-              <th style={thStyle}>Fecha</th>
-              <th style={{ ...thStyle, width: "200px" }}>Acción</th>
-            </tr>
-          </thead>
-          <tbody>
-            {reports.map((report) => {
-              const tag = riskTag[report.risk];                 // etiqueta de riesgo
-              const domain = report.site.replace("https://", "");
-              return (
-                <tr key={report.scanId} style={{ borderBottom: "1px solid #F1F2F4" }}>
-                  {/* Columna Sitio: cuadrito con inicial + dominio + url. */}
-                  <td style={{ padding: "14px 22px", fontSize: "14px" }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
-                      <div style={{ width: "32px", height: "32px", borderRadius: "8px", border: `1px solid ${c.border}`, display: "grid", placeItems: "center", fontWeight: 600, fontSize: "13px", color: c.muted }}>
-                        {domain[0].toUpperCase()}
-                      </div>
-                      <div>
-                        <div style={{ fontWeight: 500 }}>{domain}</div>
-                        <div style={{ fontSize: "12.5px", color: c.muted }}>{report.site}</div>
-                      </div>
-                    </div>
-                  </td>
-                  {/* Columna ID escaneo: en fuente monoespaciada (estilo "código"). */}
-                  <td style={{ padding: "14px 22px", fontSize: "13px", fontFamily: "ui-monospace, Menlo, monospace", color: c.muted }}>
-                    {report.scanId}
-                  </td>
-                  {/* Columna Riesgo: etiqueta de color. */}
-                  <td style={{ padding: "14px 22px" }}>
-                    <span style={{ fontSize: "12px", fontWeight: 600, padding: "3px 9px", borderRadius: "999px", background: tag.bg, color: tag.color }}>
-                      {tag.label}
-                    </span>
-                  </td>
-                  {/* Columna Fecha: en gris. */}
-                  <td style={{ padding: "14px 22px", fontSize: "14px", color: c.muted }}>{report.date}</td>
-                  {/* Columna Acción: botón azul "Generar PDF". */}
-                  <td style={{ padding: "14px 22px" }}>
-                    <button disabled={readOnly} style={{ display: "inline-flex", alignItems: "center", gap: "7px", background: readOnly ? "#E5E7EB" : c.primary, color: readOnly ? c.muted : "#fff", border: "none", borderRadius: "9px", padding: "8px 14px", fontWeight: 600, fontSize: "13.5px", cursor: readOnly ? "not-allowed" : "pointer", boxShadow: readOnly ? "none" : "0 1px 2px rgba(37,99,235,.25)" }}>
-                      {readOnly ? "Solo lectura" : "Generar PDF"}
-                    </button>
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </section>
-    </main>
-  );
+  const download = async (id: string) => { setMessage(""); try { await downloadReport(id); } catch (reason) { setMessage(reason instanceof Error ? reason.message : "No fue posible descargar el PDF."); } };
+  return <main className="responsive-page" style={{ flex: 1, padding: "36px 44px 48px", background: c.background, color: c.text }}><header style={{ marginBottom: 28 }}><h1 style={{ margin: 0, fontSize: 30 }}>Reportes</h1><p style={{ color: c.muted }}>{readOnly ? "Reportes de demostración" : "Reportes PDF de tus escaneos completados"}</p></header>{message && <p style={{ color: c.severity.critical }}>{message}</p>}<section className="responsive-table-card" style={card}><div style={{ display: "flex", justifyContent: "space-between", padding: "20px 22px 16px" }}><strong>Reportes disponibles</strong><span style={{ color: c.muted }}>{reports.length} reportes</span></div>{reports.length === 0 ? <div style={{ padding: 36, textAlign: "center", color: c.muted, borderTop: `1px solid ${c.border}` }}>No hay reportes disponibles. Se habilitarán cuando finalice un escaneo.</div> : <table style={{ width: "100%", borderCollapse: "collapse" }}><thead><tr><th style={th}>Sitio</th><th style={th}>ID escaneo</th><th style={th}>Riesgo</th><th style={th}>Fecha</th><th style={th}>Acción</th></tr></thead><tbody>{reports.map((report) => { const tag = tags[report.risk_level]; return <tr key={report.scan_id} style={{ borderTop: `1px solid ${c.border}` }}><td style={{ padding: "14px 22px" }}><strong>{new URL(report.url).hostname}</strong><div style={{ color: c.muted, fontSize: 12 }}>{report.url}</div></td><td style={{ padding: "14px 22px", fontFamily: "monospace" }}>{report.scan_id.slice(0, 12)}</td><td style={{ padding: "14px 22px" }}><span style={{ background: tag[0], color: tag[1], padding: "3px 9px", borderRadius: 999, fontSize: 12 }}>{tag[2]}</span></td><td style={{ padding: "14px 22px" }}>{new Intl.DateTimeFormat("es-CL").format(new Date(report.started_at))}</td><td style={{ padding: "14px 22px" }}><button disabled={readOnly} onClick={() => void download(report.scan_id)} style={{ border: 0, borderRadius: 8, background: readOnly ? "#E5E7EB" : c.primary, color: readOnly ? c.muted : "white", padding: "8px 14px", fontWeight: 600 }}>{readOnly ? "Vista demostrativa" : report.report_status === "generated" ? "Descargar PDF" : "Generar/descargar PDF"}</button></td></tr>; })}</tbody></table>}</section></main>;
 }
-
-export default Reports;
-

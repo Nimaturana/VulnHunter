@@ -39,6 +39,7 @@ class UsuarioResponse(BaseModel):
     email: EmailStr
     nombre: str
     apellido: str
+    company_name: str | None = None
     role: str
 
     # Permite construir este modelo directamente desde el objeto User de la base.
@@ -54,4 +55,10 @@ class LoginResponse(BaseModel):
 
 class RoleUpdateRequest(BaseModel):
     role: str
+
+
+class AuditorUpsertRequest(BaseModel):
+    email: EmailStr
+    company_name: str = Field(min_length=2, max_length=150)
+    nombre: str | None = Field(default=None, max_length=100)
 

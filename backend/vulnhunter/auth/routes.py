@@ -6,6 +6,7 @@ peticiones. Aquí definimos dos:
   - POST /auth/login    : verifica correo y contraseña.
 """
 
+import logging
 import secrets
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -19,6 +20,7 @@ from vulnhunter.auth.models import (
     LoginRequest,
     LoginResponse,
     GoogleLoginRequest,
+    AuditorUpsertRequest,
     RegistroRequest,
     RoleUpdateRequest,
     UsuarioResponse,
@@ -31,6 +33,7 @@ from vulnhunter.security import crear_access_token, normalize_role, verificar_pa
 
 # tags=["auth"] agrupa estas rutas en la documentación automática (/docs).
 router = APIRouter(prefix="/auth", tags=["auth"])
+logger = logging.getLogger(__name__)
 
 
 def _login_response(usuario: User, *, expires_in_minutes: int | None = None) -> LoginResponse:
@@ -111,9 +114,20 @@ def login_google(datos: GoogleLoginRequest, db: Session = Depends(get_db)) -> Lo
             datos.credential,
             google_requests.Request(),
             client_id,
+            clock_skew_in_seconds=10,
         )
     except (ValueError, GoogleAuthError) as exc:
-        raise HTTPException(status_code=401, detail="Credencial de Google inválida") from exc
+        reason = str(exc).lower()
+        logger.warning("Google ID token rejected: %s: %s", type(exc).__name__, exc)
+        if "audience" in reason or "recipient" in reason:
+            detail = "El token pertenece a otro Client ID de Google"
+        elif "too early" in reason or "used too early" in reason:
+            detail = "El reloj del servidor no está sincronizado con Google"
+        elif "expired" in reason:
+            detail = "La sesión de Google expiró; inténtalo nuevamente"
+        else:
+            detail = "Google rechazó la credencial de inicio de sesión"
+        raise HTTPException(status_code=401, detail=detail) from exc
 
     subject = str(claims.get("sub", ""))
     email = str(claims.get("email", "")).strip().lower()
@@ -191,6 +205,74 @@ def update_role(
     if user is None:
         raise HTTPException(status_code=404, detail="Usuario no encontrado")
     user.role = role
+    db.commit()
+    db.refresh(user)
+    return user
+
+
+@router.get("/auditors", response_model=list[UsuarioResponse])
+def list_auditors(
+    db: Session = Depends(get_db),
+    _: User = Depends(require_roles("admin")),
+) -> list[User]:
+    """List the auditor accounts managed by an administrator."""
+    return (
+        db.query(User)
+        .filter(User.role == "auditor")
+        .order_by(User.company_name.asc().nullslast(), User.email.asc())
+        .all()
+    )
+
+
+@router.post("/auditors", response_model=UsuarioResponse)
+def save_auditor(
+    data: AuditorUpsertRequest,
+    db: Session = Depends(get_db),
+    _: User = Depends(require_roles("admin")),
+) -> User:
+    """Create an auditor identity or promote an existing account by email.
+
+    A newly provisioned identity can enter through Google Sign-In using the
+    same verified email. No reusable plaintext password is generated or sent.
+    """
+    email = str(data.email).strip().lower()
+    company_name = data.company_name.strip()
+    user = crud_users.obtener_usuario_por_email(db, email)
+    if user is None:
+        display_name = (data.nombre or email.split("@", 1)[0]).strip() or "Auditor"
+        user = crud_users.crear_usuario(
+            db,
+            email=email,
+            password=secrets.token_urlsafe(48),
+            nombre=display_name[:100],
+            apellido="Auditor",
+            company_name=company_name,
+            role="auditor",
+        )
+    else:
+        if user.role == "admin":
+            raise HTTPException(status_code=409, detail="Un administrador no puede convertirse en auditor")
+        user.role = "auditor"
+        user.company_name = company_name
+        if data.nombre and data.nombre.strip():
+            user.nombre = data.nombre.strip()[:100]
+        user.is_active = True
+        db.commit()
+        db.refresh(user)
+    return user
+
+
+@router.delete("/auditors/{user_id}", response_model=UsuarioResponse)
+def revoke_auditor(
+    user_id: int,
+    db: Session = Depends(get_db),
+    _: User = Depends(require_roles("admin")),
+) -> User:
+    """Revoke auditor privileges while preserving the account and history."""
+    user = db.get(User, user_id)
+    if user is None or normalize_role(user.role) != "auditor":
+        raise HTTPException(status_code=404, detail="Auditor no encontrado")
+    user.role = "client"
     db.commit()
     db.refresh(user)
     return user

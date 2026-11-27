@@ -8,4 +8,5 @@ export type AdminPage =
   | "scans"
   | "findings"
   | "reports"
+  | "auditors"
   | "settings";

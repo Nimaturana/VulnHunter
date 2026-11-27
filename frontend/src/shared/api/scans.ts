@@ -102,13 +102,13 @@ export function getReportInfo(scanId: string): Promise<ReportInfo> {
   return apiRequest<ReportInfo>(`/scans/${encodeURIComponent(scanId)}/report`);
 }
 
-export function startScan(url: string): Promise<StartScanResponse> {
+export function startScan(url: string, scanTypes: readonly (typeof SCANNERS)[number][] = SCANNERS): Promise<StartScanResponse> {
   return apiRequest<StartScanResponse>("/scans", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       url,
-      scan_types: [...SCANNERS],
+      scan_types: [...scanTypes],
       description: "Escaneo iniciado desde el frontend de VulnHunter",
     }),
   });

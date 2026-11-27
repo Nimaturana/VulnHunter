@@ -1,116 +1,48 @@
-// Traemos la paleta central para usar los mismos colores que el resto del panel.
+import { useEffect, useMemo, useState } from "react";
+import type { Usuario } from "../../../shared/api/auth";
+import { listScans, obtenerMisEscaneos, type RiskLevel, type ScanSummary } from "../../../shared/api/scans";
 import { theme } from "../../../shared/styles/theme";
 
 const c = theme.colors;
-
-// Datos de ejemplo de los sitios (luego vendrán del backend).
-const sites = [
-  { url: "https://tienda-ejemplo.cl", risk: "ALTO", scans: 5, lastScan: "06/09/2026" },
-  { url: "https://empresa-demo.cl", risk: "MEDIO", scans: 3, lastScan: "05/09/2026" },
-  { url: "https://portal-prueba.cl", risk: "BAJO", scans: 2, lastScan: "04/09/2026" },
+const DEMO_SITES = [
+  { url: "https://tienda-ejemplo.cl", risk: "HIGH" as RiskLevel, scans: 5, lastScan: "06/09/2026" },
+  { url: "https://empresa-demo.cl", risk: "MEDIUM" as RiskLevel, scans: 3, lastScan: "05/09/2026" },
+  { url: "https://portal-prueba.cl", risk: "LOW" as RiskLevel, scans: 2, lastScan: "04/09/2026" },
 ];
-
-// Estilos de las etiquetas de riesgo: cada nivel tiene su fondo y color de texto.
-const riskTag: Record<string, { bg: string; color: string; label: string }> = {
-  ALTO: { bg: "#FFF7ED", color: c.severity.high, label: "Alto" },
-  MEDIO: { bg: "#FEFCE8", color: "#A16207", label: "Medio" },
-  BAJO: { bg: "#F0FDF4", color: c.severity.low, label: "Bajo" },
+const riskTag: Record<RiskLevel, { bg: string; color: string; label: string; rank: number }> = {
+  CRITICAL: { bg: "#FEF2F2", color: c.severity.critical, label: "Crítico", rank: 5 },
+  HIGH: { bg: "#FFF7ED", color: c.severity.high, label: "Alto", rank: 4 },
+  MEDIUM: { bg: "#FEFCE8", color: "#A16207", label: "Medio", rank: 3 },
+  LOW: { bg: "#F0FDF4", color: c.severity.low, label: "Bajo", rank: 2 },
+  INFO: { bg: "#EFF6FF", color: "#2563EB", label: "Informativo", rank: 1 },
 };
+const card: React.CSSProperties = { background: c.surface, border: `1px solid ${c.border}`, borderRadius: 14, boxShadow: "0 4px 16px rgba(16,24,40,.04)" };
+const th: React.CSSProperties = { fontSize: 12, fontWeight: 500, color: c.muted, textAlign: "left", padding: "11px 22px", background: "#FAFAFB", borderTop: `1px solid ${c.border}`, borderBottom: `1px solid ${c.border}` };
 
-// Estilo base de las tarjetas blancas (igual que en el Dashboard).
-const card: React.CSSProperties = {
-  backgroundColor: c.surface,
-  border: `1px solid ${c.border}`,
-  borderRadius: "14px",
-  boxShadow: "0 1px 2px rgba(16,24,40,.04), 0 4px 16px rgba(16,24,40,.04)",
-};
+export default function Sites({ readOnly = false, currentUser }: { readOnly?: boolean; currentUser: Usuario | null }) {
+  const [scans, setScans] = useState<ScanSummary[]>([]);
+  const [error, setError] = useState("");
+  useEffect(() => {
+    if (readOnly) return;
+    (currentUser?.role === "admin" ? listScans() : obtenerMisEscaneos()).then(setScans).catch((reason) => setError(reason instanceof Error ? reason.message : "No fue posible cargar los sitios."));
+  }, [readOnly, currentUser?.id, currentUser?.role]);
 
-// Estilo común de los encabezados de la tabla (th).
-const thStyle: React.CSSProperties = {
-  fontSize: "12px",
-  fontWeight: 500,
-  color: c.muted,
-  textAlign: "left",
-  padding: "11px 22px",
-  background: "#FAFAFB",
-  borderTop: `1px solid ${c.border}`,
-  borderBottom: `1px solid ${c.border}`,
-};
+  const sites = useMemo(() => {
+    if (readOnly) return DEMO_SITES;
+    const grouped = new Map<string, ScanSummary[]>();
+    scans.forEach((scan) => grouped.set(scan.url, [...(grouped.get(scan.url) || []), scan]));
+    return [...grouped.entries()].map(([url, items]) => {
+      const sorted = [...items].sort((a, b) => new Date(b.started_at).getTime() - new Date(a.started_at).getTime());
+      const risk = [...items].sort((a, b) => riskTag[b.risk_level].rank - riskTag[a.risk_level].rank)[0]?.risk_level || "INFO";
+      return { url, risk, scans: items.length, lastScan: new Intl.DateTimeFormat("es-CL").format(new Date(sorted[0].started_at)) };
+    });
+  }, [readOnly, scans]);
 
-function Sites() {
-  return (
-    // Contenedor principal con fondo claro.
-    <main className="responsive-page" style={{ flex: 1, padding: "36px 44px 48px", background: c.background, color: c.text }}>
-      {/* ───────── ENCABEZADO ───────── */}
-      <header style={{ marginBottom: "28px" }}>
-        <h1 style={{ margin: 0, fontSize: "30px", fontWeight: 700, letterSpacing: "-0.02em" }}>Sitios web</h1>
-        <p style={{ color: c.muted, fontSize: "15px", margin: "6px 0 0" }}>
-          Revisa los sitios web monitoreados por VulnHunter
-        </p>
-      </header>
-
-      {/* ───────── TARJETA CON LA TABLA ───────── */}
-      <section className="responsive-table-card" style={card}>
-        {/* Cabecera de la tarjeta: título + contador de sitios. */}
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "20px 22px 16px" }}>
-          <div style={{ fontSize: "16px", fontWeight: 600 }}>Sitios monitoreados</div>
-          <span style={{ fontSize: "13px", color: c.muted }}>{sites.length} sitios</span>
-        </div>
-
-        <table style={{ width: "100%", borderCollapse: "collapse" }}>
-          <thead>
-            <tr>
-              <th style={{ ...thStyle, width: "34%" }}>Sitio</th>
-              <th style={thStyle}>Riesgo actual</th>
-              <th style={thStyle}>Escaneos</th>
-              <th style={thStyle}>Último análisis</th>
-              <th style={{ ...thStyle, width: "180px" }}>Acciones</th>
-            </tr>
-          </thead>
-          <tbody>
-            {/* Recorremos los sitios y dibujamos una fila por cada uno. */}
-            {sites.map((site) => {
-              const tag = riskTag[site.risk];               // etiqueta de riesgo de esta fila
-              const domain = site.url.replace("https://", ""); // dominio sin el "https://"
-              return (
-                <tr key={site.url} style={{ borderBottom: "1px solid #F1F2F4" }}>
-                  {/* Columna Sitio: cuadrito con inicial + dominio + url completa. */}
-                  <td style={{ padding: "14px 22px", fontSize: "14px" }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
-                      <div style={{ width: "32px", height: "32px", borderRadius: "8px", border: `1px solid ${c.border}`, display: "grid", placeItems: "center", fontWeight: 600, fontSize: "13px", color: c.muted }}>
-                        {domain[0].toUpperCase()}
-                      </div>
-                      <div>
-                        <div style={{ fontWeight: 500 }}>{domain}</div>
-                        <div style={{ fontSize: "12.5px", color: c.muted }}>{site.url}</div>
-                      </div>
-                    </div>
-                  </td>
-                  {/* Columna Riesgo: etiqueta de color. */}
-                  <td style={{ padding: "14px 22px" }}>
-                    <span style={{ fontSize: "12px", fontWeight: 600, padding: "3px 9px", borderRadius: "999px", background: tag.bg, color: tag.color }}>
-                      {tag.label}
-                    </span>
-                  </td>
-                  {/* Columna Escaneos: número en negrita. */}
-                  <td style={{ padding: "14px 22px", fontSize: "14px", fontWeight: 600 }}>{site.scans}</td>
-                  {/* Columna Último análisis: fecha en gris. */}
-                  <td style={{ padding: "14px 22px", fontSize: "14px", color: c.muted }}>{site.lastScan}</td>
-                  {/* Columna Acciones: botón secundario "Ver historial". */}
-                  <td style={{ padding: "14px 22px" }}>
-                    <button style={{ background: "#fff", color: c.text, border: `1px solid ${c.border}`, borderRadius: "9px", padding: "7px 13px", fontWeight: 500, fontSize: "13.5px", cursor: "pointer" }}>
-                      Ver historial
-                    </button>
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </section>
-    </main>
-  );
+  return <main className="responsive-page" style={{ flex: 1, padding: "36px 44px 48px", background: c.background, color: c.text }}>
+    <header style={{ marginBottom: 28 }}><h1 style={{ margin: 0, fontSize: 30 }}>Sitios web</h1><p style={{ color: c.muted, margin: "6px 0 0" }}>{readOnly ? "Datos de demostración" : "Sitios analizados por tu cuenta"}</p></header>
+    {error && <div style={{ color: c.severity.critical, marginBottom: 16 }}>{error}</div>}
+    <section className="responsive-table-card" style={card}><div style={{ display: "flex", justifyContent: "space-between", padding: "20px 22px 16px" }}><strong>Sitios monitoreados</strong><span style={{ color: c.muted }}>{sites.length} sitios</span></div>
+      {sites.length === 0 ? <div style={{ padding: 36, textAlign: "center", color: c.muted, borderTop: `1px solid ${c.border}` }}>Aún no hay sitios analizados. Inicia tu primer escaneo para registrarlos aquí.</div> : <table style={{ width: "100%", borderCollapse: "collapse" }}><thead><tr><th style={th}>Sitio</th><th style={th}>Riesgo actual</th><th style={th}>Escaneos</th><th style={th}>Último análisis</th></tr></thead><tbody>{sites.map((site) => { const host = new URL(site.url).hostname; const tag = riskTag[site.risk]; return <tr key={site.url} style={{ borderBottom: "1px solid #F1F2F4" }}><td style={{ padding: "14px 22px" }}><strong>{host}</strong><div style={{ color: c.muted, fontSize: 12 }}>{site.url}</div></td><td style={{ padding: "14px 22px" }}><span style={{ background: tag.bg, color: tag.color, padding: "3px 9px", borderRadius: 999, fontSize: 12, fontWeight: 600 }}>{tag.label}</span></td><td style={{ padding: "14px 22px", fontWeight: 600 }}>{site.scans}</td><td style={{ padding: "14px 22px", color: c.muted }}>{site.lastScan}</td></tr>; })}</tbody></table>}
+    </section>
+  </main>;
 }
-
-export default Sites;
-

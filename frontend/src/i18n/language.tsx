@@ -17,10 +17,12 @@ const translations: Record<
     "menu.dashboard": "Dashboard",
     "menu.sites": "Sitios web",
     "menu.scans": "Escaneos",
+    "menu.auditors": "Equipo auditor",
     "menu.findings": "Hallazgos",
     "menu.reports": "Reportes",
     "menu.settings": "Configuración",
     "menu.back": "Volver",
+    "menu.logout": "Cerrar sesión",
 
     // BIENVENIDA
     "welcome.subtitle": "Análisis de seguridad web",
@@ -74,10 +76,12 @@ const translations: Record<
     "menu.dashboard": "Dashboard",
     "menu.sites": "Websites",
     "menu.scans": "Scans",
+    "menu.auditors": "Audit team",
     "menu.findings": "Findings",
     "menu.reports": "Reports",
     "menu.settings": "Settings",
     "menu.back": "Back",
+    "menu.logout": "Sign out",
 
     // WELCOME
     "welcome.subtitle": "Web security analysis",

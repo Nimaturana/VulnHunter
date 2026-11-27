@@ -706,10 +706,8 @@ class VulnHunterReportGenerator:
     def _create_scanner_analysis(self, scan_data):
         """Crear análisis detallado por scanner"""
         story = []
-       
-        story.append(Paragraph("3. RESULTADOS DEL ANÁLISIS POR SCANNER", self.styles['SectionTitle']))
-       
         results = scan_data.get('results', {})
+        vulnerabilities = scan_data.get('vulnerabilities', [])
         scanner_details = {
             'xss': 'Detección de Cross-Site Scripting (XSS)',
             'sql_injection': 'Detección de SQL Injection',
@@ -717,31 +715,75 @@ class VulnHunterReportGenerator:
             'ssl_tls': 'Evaluación de Configuración SSL/TLS',
             'directory_scan': 'Enumeración de Directorios y Archivos'
         }
-       
-        for scanner_type in scan_data.get('scan_types', []):
+
+        sections = []
+        scan_types = list(scan_data.get('scan_types', []))
+        for index, scanner_type in enumerate(scan_types, 1):
+            scanner_findings = [
+                finding for finding in vulnerabilities
+                if finding.get('scanner') == scanner_type
+            ]
+            block = [Paragraph(
+                f"3.{index} {scanner_details.get(scanner_type, scanner_type.title())}",
+                self.styles['SubSectionTitle'],
+            )]
+
             if scanner_type in results:
-                story.append(Paragraph(f"3.{list(scan_data['scan_types']).index(scanner_type) + 1} {scanner_details.get(scanner_type, scanner_type.title())}",
-                                     self.styles['SubSectionTitle']))
-               
                 result_data = results[scanner_type]
                 analysis = self._analyze_scanner_result(scanner_type, result_data)
-               
-                # Status y resumen
-                status = "VULNERABLE" if result_data.get('vulnerable', False) else "SECURE"
-                status_color = colors.red if status == "VULNERABLE" else colors.green
-               
-                story.append(Paragraph(f"<font color='{status_color.hexval()}'><b>Estado: {status}</b></font>",
-                                     self.styles['ProfessionalBody']))
-               
-                story.append(Paragraph(analysis['summary'], self.styles['ProfessionalBody']))
-               
-                # Detalles técnicos
+                has_findings = bool(scanner_findings) or result_data.get('vulnerable', False)
+                status = "HALLAZGOS DETECTADOS" if has_findings else "SIN HALLAZGOS"
+                status_color = colors.red if has_findings else colors.green
+                block.append(Paragraph(
+                    f"<font color='{status_color.hexval()}'><b>Estado: {status}</b></font>",
+                    self.styles['ProfessionalBody'],
+                ))
+                block.append(Paragraph(analysis['summary'], self.styles['ProfessionalBody']))
                 if analysis['technical_details']:
-                    story.append(Paragraph("Detalles Técnicos:", self.styles['SubSectionTitle']))
-                    story.append(Paragraph(analysis['technical_details'], self.styles['TechnicalText']))
-               
-                story.append(Spacer(1, 12))
-       
+                    block.append(Paragraph("Detalles Técnicos:", self.styles['SubSectionTitle']))
+                    block.append(Paragraph(analysis['technical_details'], self.styles['TechnicalText']))
+            else:
+                # Los resultados normalizados sí se persisten en PostgreSQL. Esta
+                # ruta mantiene el reporte completo aunque el detalle interno del
+                # scanner no esté disponible al reconstruir una tarea Celery.
+                has_findings = bool(scanner_findings)
+                status = "HALLAZGOS DETECTADOS" if has_findings else "SIN HALLAZGOS"
+                status_color = colors.red if has_findings else colors.green
+                block.append(Paragraph(
+                    f"<font color='{status_color.hexval()}'><b>Estado: {status}</b></font>",
+                    self.styles['ProfessionalBody'],
+                ))
+                if has_findings:
+                    finding_types = sorted({
+                        escape(str(finding.get('type', 'Hallazgo sin clasificar')))
+                        for finding in scanner_findings
+                    })
+                    block.append(Paragraph(
+                        f"Se identificaron {len(scanner_findings)} hallazgo(s): "
+                        f"{', '.join(finding_types)}.",
+                        self.styles['ProfessionalBody'],
+                    ))
+                else:
+                    block.append(Paragraph(
+                        "El módulo finalizó sin identificar hallazgos dentro del alcance de esta evaluación.",
+                        self.styles['ProfessionalBody'],
+                    ))
+
+            block.append(Spacer(1, 10))
+            sections.append(KeepTogether(block))
+
+        if not sections:
+            sections.append(Paragraph(
+                "No hay resultados de scanners disponibles para este análisis.",
+                self.styles['ProfessionalBody'],
+            ))
+
+        # Mantener el título junto al primer resultado evita una página vacía.
+        story.append(KeepTogether([
+            Paragraph("3. RESULTADOS DEL ANÁLISIS POR SCANNER", self.styles['SectionTitle']),
+            sections[0],
+        ]))
+        story.extend(sections[1:])
         return story
 
     def _create_comprehensive_vulnerability_details(self, scan_data):

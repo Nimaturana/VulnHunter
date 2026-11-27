@@ -35,6 +35,7 @@ class User(Base):
     hashed_password = Column(String(255), nullable=False)
     nombre = Column(String(100), nullable=False, default="Usuario", server_default="Usuario")
     apellido = Column(String(100), nullable=False, default="VulnHunter", server_default="VulnHunter")
+    company_name = Column(String(150), nullable=True)
     rut = Column(String(20), unique=True, nullable=True)
     telefono = Column(String(30), nullable=True)
     fecha_nacimiento = Column(String(20), nullable=True)
