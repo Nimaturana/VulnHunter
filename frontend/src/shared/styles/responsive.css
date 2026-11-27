@@ -1,0 +1,158 @@
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  min-width: 0;
+  margin: 0;
+}
+
+img,
+svg {
+  max-width: 100%;
+}
+
+.responsive-table-card {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.responsive-table-card table {
+  min-width: 720px;
+}
+
+@media (max-width: 768px) {
+  .login-scrim {
+    padding: 12px !important;
+    align-items: flex-start !important;
+  }
+
+  .login-card {
+    max-width: 100% !important;
+    padding: 28px 18px 22px !important;
+    border-radius: 14px !important;
+  }
+
+  .login-form-grid {
+    grid-template-columns: 1fr !important;
+    gap: 10px !important;
+  }
+
+  .welcome-container {
+    padding-left: 16px !important;
+    padding-right: 16px !important;
+  }
+
+  .welcome-hero {
+    padding-top: 48px !important;
+  }
+
+  .welcome-title {
+    font-size: clamp(34px, 10vw, 46px) !important;
+    line-height: 1.08 !important;
+  }
+
+  .welcome-actions,
+  .welcome-cta {
+    align-items: stretch !important;
+    flex-direction: column !important;
+  }
+
+  .welcome-cta {
+    padding: 28px 20px !important;
+  }
+
+  .welcome-actions button,
+  .welcome-cta button {
+    justify-content: center !important;
+    width: 100% !important;
+  }
+
+  .welcome-preview {
+    display: none !important;
+  }
+
+  .welcome-features,
+  .welcome-steps {
+    grid-template-columns: 1fr !important;
+  }
+
+  .welcome-steps > div {
+    border-left: 0 !important;
+    border-top: 1px solid #e5e7eb;
+  }
+
+  .welcome-steps > div:first-child {
+    border-top: 0;
+  }
+
+  .app-shell {
+    display: block !important;
+  }
+
+  .app-sidebar {
+    position: sticky;
+    top: 0;
+    z-index: 30;
+    width: 100% !important;
+    min-width: 0 !important;
+    padding: 10px 12px !important;
+    border-right: 0 !important;
+    border-bottom: 1px solid #e5e7eb;
+  }
+
+  .app-sidebar-back {
+    margin-bottom: 8px !important;
+  }
+
+  .app-sidebar-brand {
+    display: none !important;
+  }
+
+  .app-navigation {
+    flex-direction: row !important;
+    gap: 6px !important;
+    overflow-x: auto;
+    padding-bottom: 3px;
+    scrollbar-width: thin;
+  }
+
+  .app-navigation button {
+    flex: 0 0 auto;
+    width: auto !important;
+    white-space: nowrap;
+  }
+
+  .responsive-page {
+    padding: 24px 16px 36px !important;
+    overflow-x: hidden;
+  }
+
+  .dashboard-header {
+    align-items: flex-start !important;
+    flex-direction: column !important;
+    gap: 14px;
+  }
+
+  .dashboard-kpis,
+  .dashboard-charts {
+    grid-template-columns: 1fr !important;
+  }
+
+  .responsive-table-card {
+    margin-right: -16px;
+    border-radius: 14px 0 0 14px !important;
+  }
+}
+
+@media (max-width: 420px) {
+  .login-card h1 {
+    font-size: 21px !important;
+  }
+
+  .responsive-page h1 {
+    font-size: 26px !important;
+  }
+}

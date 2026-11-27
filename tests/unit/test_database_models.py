@@ -16,6 +16,12 @@ def test_mvp_database_contains_expected_tables_and_relations():
     assert Scan.__tablename__ == "scans"
     assert Finding.__tablename__ == "findings"
     assert Report.__tablename__ == "reports"
+    role_constraint = next(
+        constraint
+        for constraint in User.__table__.constraints
+        if isinstance(constraint, CheckConstraint) and constraint.name == "ck_users_role"
+    )
+    assert "guest" in str(role_constraint.sqltext)
 
     assert Website.__table__.c.user_id.foreign_keys
     assert Scan.__table__.c.website_id.foreign_keys

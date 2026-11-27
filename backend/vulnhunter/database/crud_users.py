@@ -4,6 +4,7 @@ Estas funciones manejan el registro y la búsqueda de usuarios.
 Las contraseñas se cifran con bcrypt antes de guardarse.
 """
 
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from vulnhunter.database.models import User
@@ -16,7 +17,7 @@ def obtener_usuario_por_email(db: Session, email: str) -> User | None:
     Se usa para el login (buscar la cuenta) y para evitar correos repetidos
     al registrar.
     """
-    return db.query(User).filter(User.email == email).first()
+    return db.query(User).filter(func.lower(User.email) == email.strip().lower()).first()
 
 
 def obtener_usuario_por_rut(db: Session, rut: str) -> User | None:
@@ -37,7 +38,7 @@ def crear_usuario(
     rut: str | None = None,
     telefono: str | None = None,
     fecha_nacimiento: str | None = None,
-    role: str = "user",
+    role: str = "client",
 ) -> User:
     """Crea un usuario nuevo en la base de datos.
 
@@ -49,7 +50,7 @@ def crear_usuario(
 
     # Creamos el objeto usuario con todos sus datos.
     nuevo = User(
-        email=email,
+        email=email.strip().lower(),
         hashed_password=hashed,
         nombre=nombre,
         apellido=apellido,

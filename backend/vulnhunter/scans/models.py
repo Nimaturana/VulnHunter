@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Any, Optional
 
-from pydantic import BaseModel, Field, HttpUrl
+from pydantic import BaseModel, Field, HttpUrl, model_validator
 
 
 DEFAULT_SCANNERS = [
@@ -14,10 +14,16 @@ DEFAULT_SCANNERS = [
 
 
 class ScanRequest(BaseModel):
-    url: HttpUrl
+    website_id: Optional[int] = Field(default=None, ge=1)
+    url: Optional[HttpUrl] = None
     scan_types: list[str] = Field(default_factory=lambda: list(DEFAULT_SCANNERS))
     description: Optional[str] = Field(default=None, max_length=500)
-    requested_by_user_id: Optional[int] = Field(default=None, ge=1)
+
+    @model_validator(mode="after")
+    def require_target(self):
+        if self.website_id is None and self.url is None:
+            raise ValueError("Debes indicar website_id o la URL de un sitio registrado")
+        return self
 
 
 class Finding(BaseModel):

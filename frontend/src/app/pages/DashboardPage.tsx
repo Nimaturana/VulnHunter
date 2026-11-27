@@ -90,7 +90,7 @@ const card: React.CSSProperties = {
 // COMPONENTE PRINCIPAL
 // ───────────────────────────────────────────────────────────────
 
-function Dashboard() {
+function Dashboard({ readOnly = false }: { readOnly?: boolean }) {
   // showNewScan: controla si el modal de "Nuevo escaneo" está abierto (true) o cerrado (false).
   const [showNewScan, setShowNewScan] = useState(false);
   // scanUrl: guarda lo que el usuario escribe en el campo de URL del modal.
@@ -98,18 +98,20 @@ function Dashboard() {
 
   return (
     // Contenedor principal del contenido (a la derecha de la barra lateral).
-    <main style={{ flex: 1, padding: "36px 44px 48px", background: c.background, color: c.text }}>
+    <main className="responsive-page" style={{ flex: 1, padding: "36px 44px 48px", background: c.background, color: c.text }}>
 
       {/* ───────── ENCABEZADO: saludo + botón "Nuevo escaneo" ───────── */}
-      <header style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", marginBottom: "28px" }}>
+      <header className="dashboard-header" style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", marginBottom: "28px" }}>
         <div>
-          <h1 style={{ margin: 0, fontSize: "30px", fontWeight: 700, letterSpacing: "-0.02em" }}>Hola, Carlos</h1>
+          <h1 style={{ margin: 0, fontSize: "30px", fontWeight: 700, letterSpacing: "-0.02em" }}>
+            {readOnly ? "Bienvenido a la demostración" : "Hola, Carlos"}
+          </h1>
           <p style={{ color: c.muted, fontSize: "15px", marginTop: "6px", margin: "6px 0 0" }}>
             Resumen general de tus sitios
           </p>
         </div>
         {/* Al hacer clic, abrimos el modal poniendo showNewScan en true. */}
-        <button
+        {!readOnly && <button
           onClick={() => setShowNewScan(true)}
           style={{
             display: "inline-flex", alignItems: "center", gap: "8px",
@@ -119,12 +121,12 @@ function Dashboard() {
           }}
         >
           + Nuevo escaneo
-        </button>
+        </button>}
       </header>
 
       {/* ───────── TARJETAS KPI (resumen en números) ───────── */}
       {/* Grid de 4 columnas iguales. */}
-      <section style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: "20px", marginBottom: "20px" }}>
+      <section className="dashboard-kpis" style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: "20px", marginBottom: "20px" }}>
         {/* Recorremos el arreglo kpis y dibujamos una tarjeta por cada uno. */}
         {kpis.map((k) => (
           <div key={k.label} style={{ ...card, padding: "20px 22px" }}>
@@ -152,7 +154,7 @@ function Dashboard() {
       </section>
 
       {/* ───────── GRÁFICOS: línea (izquierda) + dona (derecha) ───────── */}
-      <section style={{ display: "grid", gridTemplateColumns: "1.65fr 1fr", gap: "20px", marginBottom: "20px" }}>
+      <section className="dashboard-charts" style={{ display: "grid", gridTemplateColumns: "1.65fr 1fr", gap: "20px", marginBottom: "20px" }}>
 
         {/* GRÁFICO DE LÍNEA: evolución de escaneos */}
         <div style={{ ...card, padding: "20px 22px" }}>
@@ -230,7 +232,7 @@ function Dashboard() {
       </section>
 
       {/* ───────── TABLA: actividad reciente ───────── */}
-      <section style={card}>
+      <section className="responsive-table-card" style={card}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "20px 22px 16px" }}>
           <div>
             <div style={{ fontSize: "16px", fontWeight: 600 }}>Actividad reciente</div>
@@ -290,7 +292,7 @@ function Dashboard() {
 
       {/* ───────── MODAL "NUEVO ESCANEO" ───────── */}
       {/* Solo se muestra si showNewScan es true (se abre con el botón del encabezado). */}
-      {showNewScan && (
+      {!readOnly && showNewScan && (
         // Capa oscura que cubre toda la pantalla (el fondo del modal).
         <div style={{ position: "fixed", inset: 0, background: "rgba(16,24,40,.45)", display: "flex", justifyContent: "center", alignItems: "center", zIndex: 1000 }}>
           {/* Caja blanca del modal. */}

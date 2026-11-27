@@ -12,10 +12,12 @@ import type {
 import UserDashboard from "./pages/UserDashboardPage";
 import {
   ADMIN_NAVIGATION,
+  GUEST_NAVIGATION,
   AdminRouter,
 } from "./router";
 // Traemos la paleta central para usar los mismos colores que el Dashboard.
 import { theme } from "../shared/styles/theme";
+import { cerrarSesion } from "../shared/api/auth";
 
 // Atajo para no escribir theme.colors cada vez.
 const c = theme.colors;
@@ -63,7 +65,7 @@ function App() {
             setUserRole(role);        // guardamos el rol elegido
             setUsuario(usuarioLogueado); // guardamos el usuario completo (nombre, id, email)
             setScreen("app");         // pasamos a la aplicación
-            if (role === "analyst") {
+            if (role === "analyst" || role === "guest") {
               setActivePage("dashboard"); // el admin arranca en el Dashboard
             }
           }}
@@ -80,6 +82,7 @@ function App() {
       <UserDashboard
         usuario={usuario}
         onBack={() => {
+          cerrarSesion();
           setUserRole(null);
           setUsuario(null);
           setScreen("welcome");
@@ -89,10 +92,13 @@ function App() {
   }
 
   // ========================= PANEL DEL ANALISTA / ADMIN =========================
-  if (screen === "app" && userRole === "analyst") {
+  if (screen === "app" && (userRole === "analyst" || userRole === "guest")) {
+    const isGuest = userRole === "guest";
+    const navigation = isGuest ? GUEST_NAVIGATION : ADMIN_NAVIGATION;
     return (
       // Contenedor general: fondo claro y disposición en fila (barra lateral + contenido).
       <div
+        className="app-shell"
         style={{
           minHeight: "100vh",
           backgroundColor: c.background, // fondo gris suave claro
@@ -103,6 +109,7 @@ function App() {
       >
         {/* ───────── BARRA LATERAL (ahora blanca) ───────── */}
         <aside
+          className="app-sidebar"
           style={{
             width: "240px",
             minWidth: "240px",
@@ -115,7 +122,9 @@ function App() {
         >
           {/* BOTÓN VOLVER: cierra sesión y vuelve a la bienvenida. */}
           <button
+            className="app-sidebar-back"
             onClick={() => {
+              cerrarSesion();
               setUserRole(null);
               setScreen("welcome");
             }}
@@ -137,6 +146,7 @@ function App() {
 
           {/* LOGO: imagen + nombre VulnHunter. */}
           <div
+            className="app-sidebar-brand"
             style={{
               display: "flex",
               alignItems: "center",
@@ -156,8 +166,8 @@ function App() {
           </div>
 
           {/* MENÚ ADMIN: recorre las opciones y marca la activa en azul. */}
-          <nav style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
-            {ADMIN_NAVIGATION.map((item) => (
+          <nav className="app-navigation" style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+            {navigation.map((item) => (
               <button
                 key={item.id}
                 onClick={() => setActivePage(item.id)} // cambia la sección activa
@@ -170,7 +180,25 @@ function App() {
         </aside>
 
         {/* CONTENIDO: muestra la sección activa (Dashboard, Sitios, Escaneos, etc.). */}
-        <AdminRouter activePage={activePage} />
+        <div style={{ flex: 1, minWidth: 0 }}>
+          {isGuest && (
+            <div
+              role="status"
+              style={{
+                background: "#EFF4FF",
+                color: c.primary,
+                borderBottom: `1px solid ${c.border}`,
+                padding: "10px 24px",
+                fontSize: "13px",
+                fontWeight: 600,
+                textAlign: "center",
+              }}
+            >
+              Modo invitado · demostración temporal de solo lectura
+            </div>
+          )}
+          <AdminRouter activePage={activePage} readOnly={isGuest} />
+        </div>
       </div>
     );
   }

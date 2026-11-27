@@ -4,7 +4,8 @@ import { theme } from "../../../shared/styles/theme";
 // Iconos de la librería lucide-react (ojo abierto / ojo tachado).
 import { Eye, EyeOff } from "lucide-react";
 // Funciones que hablan con el backend de autenticación.
-import { registrarUsuario, iniciarSesion, ApiError, type Usuario } from "../../../shared/api/auth";
+import { registrarUsuario, iniciarSesion, iniciarSesionGoogle, iniciarSesionInvitado, ApiError, type Usuario } from "../../../shared/api/auth";
+import GoogleSignInButton from "../components/GoogleSignInButton";
 
 
 // Atajo para no escribir "theme.colors" en cada línea.
@@ -15,7 +16,7 @@ const c = theme.colors;
 // - onLogin: decide el rol (analyst o user) y entra al panel.
 type LoginProps = {
   onBack: () => void;
-  onLogin: (role: "analyst" | "user", usuario: Usuario) => void;
+  onLogin: (role: "analyst" | "user" | "guest", usuario: Usuario) => void;
 };
 
 
@@ -26,16 +27,6 @@ type LoginProps = {
 // "success"  = pantalla de "Cuenta creada" (paso final del registro)
 type View = "start" | "email" | "register" | "success";
 
-
-// Logo oficial de Google (SVG multicolor). Viene del diseño original.
-const GoogleIcon = () => (
-  <svg width="18" height="18" viewBox="0 0 48 48">
-    <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z" />
-    <path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z" />
-    <path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z" />
-    <path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z" />
-  </svg>
-);
 
 // Logo oficial de Microsoft (cuatro cuadrados). Viene del diseño original.
 const MicrosoftIcon = () => (
@@ -125,6 +116,7 @@ function Login({ onBack, onLogin }: LoginProps) {
   const [aviso, setAviso] = useState("");
   // Mensaje de error del login (ej: "correo o contraseña incorrectos").
   const [loginError, setLoginError] = useState("");
+  const [guestLoading, setGuestLoading] = useState(false);
 
 
   // ---- Estados del formulario de REGISTRO ----
@@ -161,7 +153,7 @@ function Login({ onBack, onLogin }: LoginProps) {
       // El backend nos dice el role. Lo traducimos al que espera el panel:
       // "admin" -> "analyst" (panel de administrador)
       // "user"  -> "user"    (panel de cliente)
-      if (usuario.role === "admin") {
+      if (usuario.role === "admin" || usuario.role === "auditor") {
         onLogin("analyst", usuario);
       } else {
         onLogin("user", usuario);
@@ -174,6 +166,43 @@ function Login({ onBack, onLogin }: LoginProps) {
       } else {
         // Error de conexión (backend apagado, CORS, sin internet, etc.).
         setLoginError("No se pudo conectar con el servidor. Revisa tu conexión.");
+      }
+    }
+  };
+
+  const completarLogin = (usuario: Usuario) => {
+    if (usuario.role === "guest") {
+      onLogin("guest", usuario);
+      return;
+    }
+    onLogin(usuario.role === "admin" || usuario.role === "auditor" ? "analyst" : "user", usuario);
+  };
+
+  const handleGuestLogin = async () => {
+    setLoginError("");
+    setGuestLoading(true);
+    try {
+      completarLogin(await iniciarSesionInvitado());
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 404) {
+        setLoginError("La demostración para invitados no está habilitada.");
+      } else {
+        setLoginError("No fue posible abrir la demostración. Intenta nuevamente.");
+      }
+    } finally {
+      setGuestLoading(false);
+    }
+  };
+
+  const handleGoogleCredential = async (credential: string) => {
+    setLoginError("");
+    try {
+      completarLogin(await iniciarSesionGoogle(credential));
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 503) {
+        setLoginError("Google todavía no está configurado en el servidor.");
+      } else {
+        setLoginError("No fue posible iniciar sesión con Google.");
       }
     }
   };
@@ -334,6 +363,7 @@ function Login({ onBack, onLogin }: LoginProps) {
     // pantalla. Deja ver la bienvenida de fondo, pero opacada. Al hacer clic
     // en el fondo (fuera de la tarjeta) se cierra y vuelve a la bienvenida.
     <div
+      className="login-scrim"
       onClick={onBack}
       style={{
         position: "fixed",
@@ -350,7 +380,7 @@ function Login({ onBack, onLogin }: LoginProps) {
       }}
     >
       {/* stopPropagation: evita que un clic DENTRO de la tarjeta cierre el modal. */}
-      <div style={card} onClick={(e) => e.stopPropagation()}>
+      <div className="login-card" style={card} onClick={(e) => e.stopPropagation()}>
         {/* Botón de cerrar (X) arriba a la derecha: vuelve a la bienvenida. */}
         <button
           onClick={onBack}
@@ -417,10 +447,15 @@ function Login({ onBack, onLogin }: LoginProps) {
 
             {/* Botones de proveedores con sus logos reales. */}
             <div style={{ display: "grid", gap: "10px" }}>
-              <button style={btnProvider} onClick={() => mostrarProximamente("Google")}>
-                <GoogleIcon />
-                Continuar con Google
-              </button>
+              <GoogleSignInButton
+                onCredential={(credential) => void handleGoogleCredential(credential)}
+                onError={setLoginError}
+              />
+              {loginError && (
+                <p style={{ color: c.severity.critical, fontSize: "13px", margin: "2px 0 0" }}>
+                  {loginError}
+                </p>
+              )}
               <button style={btnProvider} onClick={() => mostrarProximamente("Microsoft")}>
                 <MicrosoftIcon />
                 Continuar con Microsoft
@@ -441,6 +476,25 @@ function Login({ onBack, onLogin }: LoginProps) {
             >
               Continuar con correo electrónico
             </button>
+
+            <button
+              type="button"
+              style={{
+                ...btnProvider,
+                marginTop: "10px",
+                borderColor: c.primary,
+                color: c.primary,
+                backgroundColor: "#EFF4FF",
+                fontWeight: 600,
+              }}
+              onClick={() => void handleGuestLogin()}
+              disabled={guestLoading}
+            >
+              {guestLoading ? "Preparando demostración…" : "👁️ Explorar demo como invitado"}
+            </button>
+            <p style={{ textAlign: "center", fontSize: "12px", color: c.muted, margin: "8px 0 0" }}>
+              Acceso temporal y de solo lectura. No requiere crear una cuenta.
+            </p>
 
             {/* Enlace a registro (lo conectamos en la Parte 2). */}
             <p style={{ textAlign: "center", fontSize: "14px", color: c.muted, marginTop: "20px" }}>
@@ -551,7 +605,7 @@ function Login({ onBack, onLogin }: LoginProps) {
               style={sectionLabel}>Datos personales
             </span>
 
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "14px" }}>
+            <div className="login-form-grid" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "14px" }}>
               <div>
                 <label style={{ display: "block", fontSize: "13.5px", fontWeight: 500 }}>Nombre</label>
                 <input
@@ -589,7 +643,7 @@ function Login({ onBack, onLogin }: LoginProps) {
             />
 
             {/* --- Fila: Contraseña y Confirmar (dos columnas) --- */}
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "14px", marginTop: "16px" }}>
+            <div className="login-form-grid" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "14px", marginTop: "16px" }}>
               <div>
                 <label style={{ display: "block", fontSize: "13.5px", fontWeight: 500 }}>Contraseña</label>
                 {/* Contenedor relativo: permite poner el ojito encima del input. */}

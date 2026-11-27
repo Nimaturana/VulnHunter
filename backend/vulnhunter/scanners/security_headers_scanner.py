@@ -25,7 +25,9 @@ class SecurityHeadersScanner:
             response = requests.get(
                 url,
                 timeout=15,
-                allow_redirects=True,
+                # A verified origin does not authorize following redirects to
+                # a different host. Redirects are reported, not traversed.
+                allow_redirects=False,
                 headers={"User-Agent": "VulnHunter/0.1 (authorized security assessment)"},
                 verify=True,
             )

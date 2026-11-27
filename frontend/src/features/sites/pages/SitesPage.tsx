@@ -40,7 +40,7 @@ const thStyle: React.CSSProperties = {
 function Sites() {
   return (
     // Contenedor principal con fondo claro.
-    <main style={{ flex: 1, padding: "36px 44px 48px", background: c.background, color: c.text }}>
+    <main className="responsive-page" style={{ flex: 1, padding: "36px 44px 48px", background: c.background, color: c.text }}>
       {/* ───────── ENCABEZADO ───────── */}
       <header style={{ marginBottom: "28px" }}>
         <h1 style={{ margin: 0, fontSize: "30px", fontWeight: 700, letterSpacing: "-0.02em" }}>Sitios web</h1>
@@ -50,7 +50,7 @@ function Sites() {
       </header>
 
       {/* ───────── TARJETA CON LA TABLA ───────── */}
-      <section style={card}>
+      <section className="responsive-table-card" style={card}>
         {/* Cabecera de la tarjeta: título + contador de sitios. */}
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "20px 22px 16px" }}>
           <div style={{ fontSize: "16px", fontWeight: 600 }}>Sitios monitoreados</div>

@@ -1,4 +1,4 @@
-import { API_BASE_URL, apiRequest } from "./client";
+import { API_BASE_URL, ApiError, apiRequest, getAccessToken } from "./client";
 
 export const SCANNERS = [
   "xss",
@@ -118,6 +118,25 @@ export function reportUrl(scanId: string): string {
   return `${API_BASE_URL}/scans/${encodeURIComponent(scanId)}/report.pdf`;
 }
 
+export async function downloadReport(scanId: string): Promise<void> {
+  const token = getAccessToken();
+  const response = await fetch(reportUrl(scanId), {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  });
+  if (!response.ok) {
+    throw new ApiError(response.status, "No fue posible descargar el reporte");
+  }
+  const blob = await response.blob();
+  const objectUrl = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = objectUrl;
+  link.download = `VulnHunter_${scanId}.pdf`;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(objectUrl);
+}
+
 export function formatDate(value: string | null): string {
   if (!value) return "En curso";
   return new Intl.DateTimeFormat("es-CL", {
@@ -152,7 +171,7 @@ export function riskColor(level: RiskLevel): string {
   }[level];
 }
 
-export type DatosEscaneo = { url: string; requested_by_user_id?: number };
+export type DatosEscaneo = { url: string; website_id?: number };
 export type EscaneoIniciado = StartScanResponse;
 export type ResumenEscaneo = ScanSummary;
 export type HallazgoBackend = Finding;
@@ -186,8 +205,8 @@ export function iniciarEscaneo(datos: DatosEscaneo): Promise<EscaneoIniciado> {
   });
 }
 
-export function obtenerMisEscaneos(userId: number): Promise<ResumenEscaneo[]> {
-  return apiRequest<ResumenEscaneo[]>(`/scans/mios?user_id=${userId}`);
+export function obtenerMisEscaneos(_userId?: number): Promise<ResumenEscaneo[]> {
+  return apiRequest<ResumenEscaneo[]>("/scans/mios");
 }
 
 export function obtenerEscaneo(scanId: string): Promise<ScanDetail> {
@@ -203,4 +222,4 @@ export function obtenerHistorial(url: string): Promise<HistorialSitio> {
   return apiRequest<HistorialSitio>(`/scans/historial?url=${encodeURIComponent(url)}`);
 }
 
-export { ApiError } from "./client";
+export { ApiError };

@@ -25,6 +25,10 @@ class LoginRequest(BaseModel):
     password: str
 
 
+class GoogleLoginRequest(BaseModel):
+    credential: str = Field(min_length=100, max_length=10000)
+
+
 class UsuarioResponse(BaseModel):
     """Datos que el backend DEVUELVE del usuario (sin la contraseña).
 
@@ -39,4 +43,15 @@ class UsuarioResponse(BaseModel):
 
     # Permite construir este modelo directamente desde el objeto User de la base.
     model_config = {"from_attributes": True}
+
+
+class LoginResponse(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+    expires_in: int
+    user: UsuarioResponse
+
+
+class RoleUpdateRequest(BaseModel):
+    role: str
 

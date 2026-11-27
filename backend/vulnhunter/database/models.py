@@ -23,6 +23,12 @@ from vulnhunter.database.connection import Base
 
 class User(Base):
     __tablename__ = "users"
+    __table_args__ = (
+        CheckConstraint(
+            "role IN ('admin', 'auditor', 'client', 'guest')",
+            name="ck_users_role",
+        ),
+    )
 
     id = Column(Integer, primary_key=True, index=True)
     email = Column(String(150), unique=True, nullable=False)
@@ -32,7 +38,8 @@ class User(Base):
     rut = Column(String(20), unique=True, nullable=True)
     telefono = Column(String(30), nullable=True)
     fecha_nacimiento = Column(String(20), nullable=True)
-    role = Column(String(20), nullable=False, default="user", server_default="user")
+    role = Column(String(20), nullable=False, default="client", server_default="client")
+    google_subject = Column(String(255), unique=True, nullable=True)
     is_active = Column(Boolean, nullable=False, default=True, server_default=text("true"))
     created_at = Column(
         DateTime(timezone=True),
@@ -78,6 +85,7 @@ class Website(Base):
     )
     verification_method = Column(String(50), nullable=True)
     verification_token_hash = Column(String(255), nullable=True)
+    verification_token_expires_at = Column(DateTime(timezone=True), nullable=True)
     verified_at = Column(DateTime(timezone=True), nullable=True)
     is_active = Column(Boolean, nullable=False, default=True, server_default=text("true"))
 

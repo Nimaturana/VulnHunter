@@ -6,8 +6,8 @@ import type { Usuario } from "../../shared/api/auth";
 import { theme } from "../../shared/styles/theme";
 
 // Funciones para hablar con el backend sobre escaneos.
-import { iniciarEscaneo, obtenerEscaneo, obtenerMisEscaneos, 
-obtenerDetalleEscaneo, reportUrl, ApiError } from "../../shared/api/scans";
+import { iniciarEscaneo, obtenerEscaneo, obtenerMisEscaneos,
+obtenerDetalleEscaneo, downloadReport, ApiError } from "../../shared/api/scans";
 import type { ResumenEscaneo, DetalleEscaneo } from "../../shared/api/scans";
 
 // Componente del detalle v2 de un sitio (archivo separado).
@@ -51,6 +51,9 @@ const card: React.CSSProperties = {
 const sevKeys = ["crit", "high", "med", "low"] as const;
 
 function UserDashboard({ usuario, onBack }: UserDashboardProps) {
+  // El cliente consulta sus resultados y descarga reportes. Solo un auditor
+  // o administrador puede iniciar pruebas activas contra un sitio verificado.
+  const puedeEscanear = usuario?.role === "admin" || usuario?.role === "auditor";
   // Nombre completo del usuario conectado (ej: "Carlos Méndez"). Si no hay, usamos un texto neutro.
   const nombreCompleto = usuario ? `${usuario.nombre} ${usuario.apellido}` : "Usuario";
   // Iniciales para el avatar (ej: "CM"). Si no hay usuario, "U".
@@ -177,7 +180,6 @@ function UserDashboard({ usuario, onBack }: UserDashboardProps) {
       // 1) Disparamos el escaneo en el backend, mandando la URL y el id del usuario.
       const inicio = await iniciarEscaneo({
         url,
-        requested_by_user_id: usuario.id,
       });
 
       // 2) El escaneo corre en segundo plano en el backend. Vamos preguntando
@@ -308,17 +310,17 @@ function UserDashboard({ usuario, onBack }: UserDashboardProps) {
                 <p style={{ color: c.muted, fontSize: "15px", margin: "6px 0 0" }}>Estado de seguridad de tus sitios</p>
               </div>
               {/* Botón que abre/cierra el formulario de nuevo escaneo. */}
-              <button
+              {puedeEscanear && <button
                 onClick={() => { setFormAbierto(!formAbierto); setErrorEscaneo(""); }}
                 style={{ display: "inline-flex", alignItems: "center", gap: "8px", backgroundColor: c.primary, color: "#fff", border: 0, borderRadius: "9px", padding: "11px 18px", fontWeight: 600, fontSize: "14px", cursor: "pointer", boxShadow: "0 1px 2px rgba(37,99,235,.25)" }}
               >
                 + Nuevo escaneo
-              </button>
+              </button>}
             </header>
 
             {/* ───────── FORMULARIO DE NUEVO ESCANEO ───────── */}
             {/* Solo se muestra cuando formAbierto es true (al apretar "+ Nuevo escaneo"). */}
-            {formAbierto && (
+            {puedeEscanear && formAbierto && (
               <div style={{ ...card, padding: "22px 24px", marginBottom: "32px" }}>
                 <div style={{ fontSize: "16px", fontWeight: 600, marginBottom: "4px" }}>Escanear un sitio</div>
                 <div style={{ fontSize: "13px", color: c.muted, marginBottom: "16px" }}>
@@ -403,12 +405,16 @@ function UserDashboard({ usuario, onBack }: UserDashboardProps) {
                   Analiza tu sitio web para descubrir vulnerabilidades y recibir recomendaciones de seguridad.
                 </p>
                 {/* Botón grande que abre el formulario de escaneo. */}
-                <button
+                {puedeEscanear ? <button
                   onClick={() => { setFormAbierto(true); setErrorEscaneo(""); }}
                   style={{ background: c.primary, color: "#fff", border: 0, borderRadius: "11px", padding: "14px 28px", fontWeight: 600, fontSize: "15px", cursor: "pointer", boxShadow: "0 1px 3px rgba(37,99,235,.3)" }}
                 >
                   Analizar mi sitio
-                </button>
+                </button> : (
+                  <div style={{ color: c.muted, fontSize: "13.5px" }}>
+                    Cuando un auditor complete el primer análisis, podrás descargar aquí el reporte.
+                  </div>
+                )}
               </div>
             ) : (
               /* CASO 3: el usuario tiene sitios → mostramos las tarjetas reales. */
@@ -458,15 +464,15 @@ function UserDashboard({ usuario, onBack }: UserDashboardProps) {
                       <div style={{ display: "flex", gap: "10px", paddingTop: "18px", borderTop: "1px solid #F1F2F4" }}>
                         {/* Acciones conectadas al detalle y al reporte del escaneo. */}
                         
-                          <button
+                          {puedeEscanear && <button
                           onClick={() => { setDetalle(ultimo.url); setDetalleScanId(ultimo.scan_id); abrirDetalle(ultimo.scan_id); }}
                           style={{ display: "inline-flex", alignItems: "center", gap: "7px", background: c.primary, color: "#fff", border: 0, borderRadius: "9px", padding: "9px 14px", fontWeight: 600, fontSize: "13.5px", cursor: "pointer", boxShadow: "0 1px 2px rgba(37,99,235,.25)" }}
                         >
                           Ver detalle
-                        </button>
+                        </button>}
 
 
-                        <button onClick={() => window.open(reportUrl(ultimo.scan_id), "_blank", "noopener,noreferrer")} disabled={!(["completed", "partial"].includes(ultimo.status))} style={{ display: "inline-flex", alignItems: "center", gap: "7px", background: "#fff", color: c.text, border: `1px solid ${c.border}`, borderRadius: "9px", padding: "9px 14px", fontWeight: 500, fontSize: "13.5px", cursor: ["completed", "partial"].includes(ultimo.status) ? "pointer" : "not-allowed", opacity: ["completed", "partial"].includes(ultimo.status) ? 1 : 0.5 }}>
+                        <button onClick={() => void downloadReport(ultimo.scan_id)} disabled={!(["completed", "partial"].includes(ultimo.status))} style={{ display: "inline-flex", alignItems: "center", gap: "7px", background: "#fff", color: c.text, border: `1px solid ${c.border}`, borderRadius: "9px", padding: "9px 14px", fontWeight: 500, fontSize: "13.5px", cursor: ["completed", "partial"].includes(ultimo.status) ? "pointer" : "not-allowed", opacity: ["completed", "partial"].includes(ultimo.status) ? 1 : 0.5 }}>
                           Descargar reporte PDF
                         </button>
                       </div>
@@ -557,7 +563,7 @@ function UserDashboard({ usuario, onBack }: UserDashboardProps) {
                     </div>
                   </div>
                   <div style={{ display: "flex", gap: "10px" }}>
-                    <button onClick={() => detalleScanId && window.open(reportUrl(detalleScanId), "_blank", "noopener,noreferrer")} style={{ display: "inline-flex", alignItems: "center", gap: "7px", background: "#fff", color: c.text, border: `1px solid ${c.border}`, borderRadius: "9px", padding: "9px 14px", fontWeight: 500, fontSize: "13.5px", cursor: "pointer" }}>
+                    <button onClick={() => detalleScanId && void downloadReport(detalleScanId)} style={{ display: "inline-flex", alignItems: "center", gap: "7px", background: "#fff", color: c.text, border: `1px solid ${c.border}`, borderRadius: "9px", padding: "9px 14px", fontWeight: 500, fontSize: "13.5px", cursor: "pointer" }}>
                       Descargar reporte PDF
                     </button>
                   </div>

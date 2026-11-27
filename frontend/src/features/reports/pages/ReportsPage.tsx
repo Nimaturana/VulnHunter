@@ -37,9 +37,9 @@ const thStyle: React.CSSProperties = {
   borderBottom: `1px solid ${c.border}`,
 };
 
-function Reports() {
+function Reports({ readOnly = false }: { readOnly?: boolean }) {
   return (
-    <main style={{ flex: 1, padding: "36px 44px 48px", background: c.background, color: c.text }}>
+    <main className="responsive-page" style={{ flex: 1, padding: "36px 44px 48px", background: c.background, color: c.text }}>
       {/* ───────── ENCABEZADO ───────── */}
       <header style={{ marginBottom: "28px" }}>
         <h1 style={{ margin: 0, fontSize: "30px", fontWeight: 700, letterSpacing: "-0.02em" }}>Reportes</h1>
@@ -49,7 +49,7 @@ function Reports() {
       </header>
 
       {/* ───────── TARJETA CON LA TABLA ───────── */}
-      <section style={card}>
+      <section className="responsive-table-card" style={card}>
         {/* Cabecera: título + contador de escaneos disponibles. */}
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "20px 22px 16px" }}>
           <div style={{ fontSize: "16px", fontWeight: 600 }}>Reportes disponibles</div>
@@ -98,8 +98,8 @@ function Reports() {
                   <td style={{ padding: "14px 22px", fontSize: "14px", color: c.muted }}>{report.date}</td>
                   {/* Columna Acción: botón azul "Generar PDF". */}
                   <td style={{ padding: "14px 22px" }}>
-                    <button style={{ display: "inline-flex", alignItems: "center", gap: "7px", background: c.primary, color: "#fff", border: "none", borderRadius: "9px", padding: "8px 14px", fontWeight: 600, fontSize: "13.5px", cursor: "pointer", boxShadow: "0 1px 2px rgba(37,99,235,.25)" }}>
-                      Generar PDF
+                    <button disabled={readOnly} style={{ display: "inline-flex", alignItems: "center", gap: "7px", background: readOnly ? "#E5E7EB" : c.primary, color: readOnly ? c.muted : "#fff", border: "none", borderRadius: "9px", padding: "8px 14px", fontWeight: 600, fontSize: "13.5px", cursor: readOnly ? "not-allowed" : "pointer", boxShadow: readOnly ? "none" : "0 1px 2px rgba(37,99,235,.25)" }}>
+                      {readOnly ? "Solo lectura" : "Generar PDF"}
                     </button>
                   </td>
                 </tr>
