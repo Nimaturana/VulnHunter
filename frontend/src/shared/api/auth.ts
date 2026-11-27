@@ -21,6 +21,7 @@ export type Usuario = {
   email: string;
   nombre: string;
   apellido: string;
+  company_name?: string | null;
   role: "admin" | "auditor" | "client" | "guest" | "user";
 };
 
@@ -74,6 +75,28 @@ export async function iniciarSesionInvitado(): Promise<Usuario> {
 
 export function cerrarSesion(): void {
   clearAccessToken();
+}
+
+export type AuditorInput = {
+  email: string;
+  company_name: string;
+  nombre?: string;
+};
+
+export function listarAuditores(): Promise<Usuario[]> {
+  return apiRequest<Usuario[]>("/auth/auditors");
+}
+
+export function guardarAuditor(data: AuditorInput): Promise<Usuario> {
+  return apiRequest<Usuario>("/auth/auditors", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  });
+}
+
+export function revocarAuditor(userId: number): Promise<Usuario> {
+  return apiRequest<Usuario>(`/auth/auditors/${userId}`, { method: "DELETE" });
 }
 
 // Re-exportamos ApiError para poder reconocer errores (ej: 401, 409) en el login.

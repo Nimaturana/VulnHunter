@@ -17,6 +17,11 @@ from vulnhunter.websites.target_policy import TargetPolicyError, normalize_origi
 
 router = APIRouter(tags=["scans"])
 
+# Los objetivos no registrados solo pueden someterse a comprobaciones que no
+# envían payloads de explotación ni enumeran rutas. Los scanners activos siguen
+# requiriendo una autorización de propiedad verificable.
+PASSIVE_UNREGISTERED_SCANNERS = {"security_headers", "ssl_tls"}
+
 
 @router.post("/scan", status_code=202, include_in_schema=False)
 @router.post("/scans", status_code=202)
@@ -26,8 +31,11 @@ async def start_scan(
     db=Depends(get_db),
     current_user: User = Depends(require_roles("admin", "auditor")),
 ) -> dict:
+    origin: str | None = None
     if request.website_id is not None:
         website = db.get(Website, request.website_id)
+        if website is None:
+            raise HTTPException(status_code=404, detail="Sitio registrado no encontrado")
     else:
         try:
             origin = normalize_origin(str(request.url))
@@ -37,19 +45,47 @@ async def start_scan(
         if len(candidates) > 1:
             raise HTTPException(status_code=409, detail="Usa website_id para identificar el sitio")
         website = candidates[0] if candidates else None
-    if website is None or not website.is_active:
-        raise HTTPException(status_code=404, detail="Sitio registrado no encontrado")
-    if website.verification_status != "verified":
-        raise HTTPException(status_code=403, detail="El sitio debe verificarse antes de escanear")
+
+    website_id: int | None = None
+    if website is not None:
+        if not website.is_active:
+            raise HTTPException(status_code=403, detail="El sitio registrado está desactivado")
+        if website.verification_status == "verified":
+            target = website.url
+            website_id = website.id
+        else:
+            requested_scanners = set(request.scan_types)
+            if not requested_scanners.issubset(PASSIVE_UNREGISTERED_SCANNERS):
+                raise HTTPException(
+                    status_code=403,
+                    detail=(
+                        "Mientras el sitio esté pendiente selecciona solamente Headers de seguridad "
+                        "y SSL/TLS. Los scanners activos requieren autorización."
+                    ),
+                )
+            target = website.url
+    else:
+        requested_scanners = set(request.scan_types)
+        if not requested_scanners.issubset(PASSIVE_UNREGISTERED_SCANNERS):
+            raise HTTPException(
+                status_code=403,
+                detail=(
+                    "Para una página no registrada selecciona solamente Headers de seguridad "
+                    "y SSL/TLS. XSS, SQL Injection y Directorios requieren autorización."
+                ),
+            )
+        assert origin is not None
+        target = origin
+
     try:
-        target_url = validate_target(website.url)
+        target_url = validate_target(target)
     except TargetPolicyError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     try:
         scan = scan_service.create_scan(
             request,
             target_url=target_url,
-            website_id=website.id,
+            website_id=website_id,
             requested_by_user_id=current_user.id,
         )
     except ValueError as exc:

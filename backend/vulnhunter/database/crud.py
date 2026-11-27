@@ -204,9 +204,14 @@ def listar_scans(
     limit: int = 50,
     offset: int = 0,
     status: str | None = None,
+    attributed_only: bool = False,
 ) -> list[Scan]:
     """Lista escaneos, del más reciente al más antiguo."""
     query = db.query(Scan)
+    if attributed_only:
+        # Los registros heredados anteriores al sistema de usuarios se conservan
+        # para auditoría, pero no deben contaminar los paneles actuales.
+        query = query.filter(Scan.requested_by_user_id.is_not(None))
     if status:
         query = query.filter(Scan.status == status)
     return query.order_by(Scan.started_at.desc()).offset(offset).limit(limit).all()

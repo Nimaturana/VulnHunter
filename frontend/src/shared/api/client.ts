@@ -25,6 +25,35 @@ export class ApiError extends Error {
   }
 }
 
+type ApiErrorDetail = {
+  loc?: Array<string | number>;
+  msg?: string;
+  type?: string;
+};
+
+function formatApiErrorDetail(detail: unknown): string | null {
+  if (typeof detail === "string") return detail;
+  if (Array.isArray(detail)) {
+    const messages = detail
+      .map((item) => {
+        if (!item || typeof item !== "object") return null;
+        const error = item as ApiErrorDetail;
+        const field = error.loc?.filter((part) => part !== "body").join(".");
+        return error.msg ? `${field ? `${field}: ` : ""}${error.msg}` : null;
+      })
+      .filter((item): item is string => Boolean(item));
+    return messages.length ? messages.join(" · ") : null;
+  }
+  if (detail && typeof detail === "object") {
+    try {
+      return JSON.stringify(detail);
+    } catch {
+      return null;
+    }
+  }
+  return null;
+}
+
 export async function apiRequest<T>(
   path: string,
   init?: RequestInit,
@@ -42,8 +71,8 @@ export async function apiRequest<T>(
   if (!response.ok) {
     let message = `La API respondió con estado ${response.status}`;
     try {
-      const payload = (await response.json()) as { detail?: string };
-      if (payload.detail) message = payload.detail;
+      const payload = (await response.json()) as { detail?: unknown };
+      message = formatApiErrorDetail(payload.detail) || message;
     } catch {
       // The fallback message remains useful for non-JSON responses.
     }

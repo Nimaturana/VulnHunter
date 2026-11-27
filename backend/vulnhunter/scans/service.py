@@ -340,6 +340,7 @@ class ScanService:
                 limit=limit,
                 offset=offset,
                 status=status,
+                attributed_only=True,
             )
             return [self._summary_from_database(scan) for scan in stored_scans]
         except Exception:

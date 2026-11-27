@@ -12,6 +12,7 @@ import type {
 import UserDashboard from "./pages/UserDashboardPage";
 import {
   ADMIN_NAVIGATION,
+  AUDITOR_NAVIGATION,
   GUEST_NAVIGATION,
   AdminRouter,
 } from "./router";
@@ -94,7 +95,11 @@ function App() {
   // ========================= PANEL DEL ANALISTA / ADMIN =========================
   if (screen === "app" && (userRole === "analyst" || userRole === "guest")) {
     const isGuest = userRole === "guest";
-    const navigation = isGuest ? GUEST_NAVIGATION : ADMIN_NAVIGATION;
+    const navigation = isGuest
+      ? GUEST_NAVIGATION
+      : usuario?.role === "admin"
+        ? ADMIN_NAVIGATION
+        : AUDITOR_NAVIGATION;
     return (
       // Contenedor general: fondo claro y disposición en fila (barra lateral + contenido).
       <div
@@ -141,7 +146,7 @@ function App() {
               gap: "8px",
             }}
           >
-            ← {t("menu.back")}
+            ← {t("menu.logout")}
           </button>
 
           {/* LOGO: imagen + nombre VulnHunter. */}
@@ -197,7 +202,7 @@ function App() {
               Modo invitado · demostración temporal de solo lectura
             </div>
           )}
-          <AdminRouter activePage={activePage} readOnly={isGuest} />
+          <AdminRouter activePage={activePage} readOnly={isGuest} currentUser={usuario} onNavigate={setActivePage} />
         </div>
       </div>
     );

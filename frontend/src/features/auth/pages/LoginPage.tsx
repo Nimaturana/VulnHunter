@@ -28,16 +28,6 @@ type LoginProps = {
 type View = "start" | "email" | "register" | "success";
 
 
-// Logo oficial de Microsoft (cuatro cuadrados). Viene del diseño original.
-const MicrosoftIcon = () => (
-  <svg width="17" height="17" viewBox="0 0 23 23">
-    <rect x="1" y="1" width="10" height="10" fill="#F25022" />
-    <rect x="12" y="1" width="10" height="10" fill="#7FBA00" />
-    <rect x="1" y="12" width="10" height="10" fill="#00A4EF" />
-    <rect x="12" y="12" width="10" height="10" fill="#FFB900" />
-  </svg>
-);
-
 // ============================================================
 // FUNCIONES DE VALIDACIÓN (ayudantes, van fuera del componente)
 // ============================================================
@@ -112,8 +102,6 @@ function Login({ onBack, onLogin }: LoginProps) {
   // Estados del formulario de correo.
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  // Aviso temporal (para proveedores que aún no funcionan).
-  const [aviso, setAviso] = useState("");
   // Mensaje de error del login (ej: "correo o contraseña incorrectos").
   const [loginError, setLoginError] = useState("");
   const [guestLoading, setGuestLoading] = useState(false);
@@ -199,8 +187,8 @@ function Login({ onBack, onLogin }: LoginProps) {
     try {
       completarLogin(await iniciarSesionGoogle(credential));
     } catch (error) {
-      if (error instanceof ApiError && error.status === 503) {
-        setLoginError("Google todavía no está configurado en el servidor.");
+      if (error instanceof ApiError) {
+        setLoginError(error.message);
       } else {
         setLoginError("No fue posible iniciar sesión con Google.");
       }
@@ -269,12 +257,6 @@ function Login({ onBack, onLogin }: LoginProps) {
     }
   };
 
-
-  // Aviso "próximamente" para Google/Microsoft (aún sin backend).
-  const mostrarProximamente = (proveedor: string) => {
-    setAviso(`El acceso con ${proveedor} estará disponible próximamente.`);
-    setTimeout(() => setAviso(""), 3000);
-  };
 
   // ===== ESTILOS REUTILIZABLES =====
   // Tarjeta blanca central (el modal).
@@ -456,10 +438,6 @@ function Login({ onBack, onLogin }: LoginProps) {
                   {loginError}
                 </p>
               )}
-              <button style={btnProvider} onClick={() => mostrarProximamente("Microsoft")}>
-                <MicrosoftIcon />
-                Continuar con Microsoft
-              </button>
             </div>
 
             {/* Divisor con "o" al centro. */}
@@ -490,7 +468,7 @@ function Login({ onBack, onLogin }: LoginProps) {
               onClick={() => void handleGuestLogin()}
               disabled={guestLoading}
             >
-              {guestLoading ? "Preparando demostración…" : "👁️ Explorar demo como invitado"}
+              {guestLoading ? "Preparando demostración…" : "Explorar demo como invitado"}
             </button>
             <p style={{ textAlign: "center", fontSize: "12px", color: c.muted, margin: "8px 0 0" }}>
               Acceso temporal y de solo lectura. No requiere crear una cuenta.
@@ -819,11 +797,6 @@ function Login({ onBack, onLogin }: LoginProps) {
               Ir a iniciar sesión
             </button>
           </div>
-        )}
-        {aviso && (
-          <p style={{ marginTop: "18px", fontSize: "13px", color: c.muted, textAlign: "center", backgroundColor: c.background, border: `1px solid ${c.border}`, borderRadius: "10px", padding: "10px" }}>
-            {aviso}
-          </p>
         )}
       </div>
     </div>
