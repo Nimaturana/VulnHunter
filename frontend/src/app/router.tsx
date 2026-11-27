@@ -19,10 +19,16 @@ export const ADMIN_NAVIGATION: ReadonlyArray<{
   { id: "settings", labelKey: "menu.settings", icon: "⚙️" },
 ];
 
+export const GUEST_NAVIGATION = ADMIN_NAVIGATION.filter(
+  (item) => item.id !== "settings",
+);
+
 export function AdminRouter({
   activePage,
+  readOnly = false,
 }: {
   activePage: AdminPage;
+  readOnly?: boolean;
 }) {
   switch (activePage) {
     case "sites":
@@ -32,11 +38,11 @@ export function AdminRouter({
     case "findings":
       return <Findings />;
     case "reports":
-      return <Reports />;
+      return <Reports readOnly={readOnly} />;
     case "settings":
       return <Settings />;
     case "dashboard":
     default:
-      return <Dashboard />;
+      return <Dashboard readOnly={readOnly} />;
   }
 }

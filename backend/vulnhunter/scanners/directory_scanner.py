@@ -166,7 +166,12 @@ class DirectoryScanner:
 
     def _check_directory_listing(self, base_url: str) -> Optional[Dict]:
         try:
-            response = self.session.get(base_url, timeout=self.timeout, headers=self.headers)
+            response = self.session.get(
+                base_url,
+                timeout=self.timeout,
+                headers=self.headers,
+                allow_redirects=False,
+            )
             if response.status_code != 200:
                 return None
             content = response.text.lower()

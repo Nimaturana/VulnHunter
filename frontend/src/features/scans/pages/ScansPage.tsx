@@ -39,7 +39,7 @@ const thStyle: React.CSSProperties = {
 
 function Scans() {
   return (
-    <main style={{ flex: 1, padding: "36px 44px 48px", background: c.background, color: c.text }}>
+    <main className="responsive-page" style={{ flex: 1, padding: "36px 44px 48px", background: c.background, color: c.text }}>
       {/* ───────── ENCABEZADO ───────── */}
       <header style={{ marginBottom: "28px" }}>
         <h1 style={{ margin: 0, fontSize: "30px", fontWeight: 700, letterSpacing: "-0.02em" }}>Escaneos</h1>
@@ -49,7 +49,7 @@ function Scans() {
       </header>
 
       {/* ───────── TARJETA CON LA TABLA ───────── */}
-      <section style={card}>
+      <section className="responsive-table-card" style={card}>
         <div style={{ padding: "20px 22px 16px" }}>
           <div style={{ fontSize: "16px", fontWeight: 600 }}>Historial de escaneos</div>
         </div>

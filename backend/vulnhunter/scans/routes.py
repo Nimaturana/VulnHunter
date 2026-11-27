@@ -1,24 +1,57 @@
 import uuid
 from typing import Optional
 
-from fastapi import APIRouter, BackgroundTasks, HTTPException, Query
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
 from fastapi.responses import FileResponse
 
 from vulnhunter.config import get_settings
+from vulnhunter.auth.dependencies import get_current_user, require_roles
 from vulnhunter.database import crud
-from vulnhunter.database.connection import SessionLocal
+from vulnhunter.database.connection import SessionLocal, get_db
+from vulnhunter.database.models import User, Website
+from vulnhunter.security import normalize_role
 from vulnhunter.scans.models import ReportInfo, ScanRequest, ScanSummary
 from vulnhunter.scans.service import scan_service
 from vulnhunter.tasks.dispatcher import enqueue_scan
+from vulnhunter.websites.target_policy import TargetPolicyError, normalize_origin, validate_target
 
 router = APIRouter(tags=["scans"])
 
 
 @router.post("/scan", status_code=202, include_in_schema=False)
 @router.post("/scans", status_code=202)
-async def start_scan(request: ScanRequest, background_tasks: BackgroundTasks) -> dict:
+async def start_scan(
+    request: ScanRequest,
+    background_tasks: BackgroundTasks,
+    db=Depends(get_db),
+    current_user: User = Depends(require_roles("admin", "auditor")),
+) -> dict:
+    if request.website_id is not None:
+        website = db.get(Website, request.website_id)
+    else:
+        try:
+            origin = normalize_origin(str(request.url))
+        except TargetPolicyError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        candidates = db.query(Website).filter(Website.url == origin).all()
+        if len(candidates) > 1:
+            raise HTTPException(status_code=409, detail="Usa website_id para identificar el sitio")
+        website = candidates[0] if candidates else None
+    if website is None or not website.is_active:
+        raise HTTPException(status_code=404, detail="Sitio registrado no encontrado")
+    if website.verification_status != "verified":
+        raise HTTPException(status_code=403, detail="El sitio debe verificarse antes de escanear")
     try:
-        scan = scan_service.create_scan(request)
+        target_url = validate_target(website.url)
+    except TargetPolicyError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    try:
+        scan = scan_service.create_scan(
+            request,
+            target_url=target_url,
+            website_id=website.id,
+            requested_by_user_id=current_user.id,
+        )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -57,21 +90,34 @@ async def list_scans(
     limit: int = Query(default=50, ge=1, le=100),
     offset: int = Query(default=0, ge=0),
     status: Optional[str] = None,
+    current_user: User = Depends(get_current_user),
 ) -> list[ScanSummary]:
-    return scan_service.list_scans(limit=limit, offset=offset, status=status)
+    if normalize_role(current_user.role) in {"admin", "auditor"}:
+        return scan_service.list_scans(limit=limit, offset=offset, status=status)
+    db = SessionLocal()
+    try:
+        scans = crud.listar_scans_de_usuario(db, current_user.id)
+        if status:
+            scans = [scan for scan in scans if scan.status == status]
+        return [scan_service._summary_from_database(scan) for scan in scans[offset:offset + limit]]
+    finally:
+        db.close()
 
 
 @router.get("/scans/mios", response_model=list[ScanSummary])
-async def list_my_scans(user_id: int = Query(..., ge=1)) -> list[ScanSummary]:
+async def list_my_scans(current_user: User = Depends(get_current_user)) -> list[ScanSummary]:
     db = SessionLocal()
     try:
-        return [scan_service._summary_from_database(scan) for scan in crud.listar_scans_de_usuario(db, user_id)]
+        return [scan_service._summary_from_database(scan) for scan in crud.listar_scans_de_usuario(db, current_user.id)]
     finally:
         db.close()
 
 
 @router.get("/scans/historial")
-async def scan_history(url: str = Query(..., min_length=1)) -> dict:
+async def scan_history(
+    url: str = Query(..., min_length=1),
+    current_user: User = Depends(require_roles("admin", "auditor")),
+) -> dict:
     db = SessionLocal()
     try:
         points = []
@@ -95,7 +141,10 @@ async def scan_history(url: str = Query(..., min_length=1)) -> dict:
 
 @router.get("/scan/{scan_id}", include_in_schema=False)
 @router.get("/scans/{scan_id}")
-async def get_scan(scan_id: str) -> dict:
+async def get_scan(scan_id: str, current_user: User = Depends(get_current_user)) -> dict:
+    if normalize_role(current_user.role) == "client":
+        raise HTTPException(status_code=403, detail="El detalle técnico requiere rol auditor")
+    _require_scan_access(scan_id, current_user)
     scan = scan_service.get_scan(scan_id)
     if scan is None:
         raise HTTPException(status_code=404, detail="Escaneo no encontrado")
@@ -104,7 +153,8 @@ async def get_scan(scan_id: str) -> dict:
 
 @router.get("/scan/{scan_id}/pdf", include_in_schema=False)
 @router.get("/scans/{scan_id}/report.pdf")
-async def download_report(scan_id: str) -> FileResponse:
+async def download_report(scan_id: str, current_user: User = Depends(get_current_user)) -> FileResponse:
+    _require_scan_access(scan_id, current_user)
     scan = scan_service.get_scan(scan_id)
     if scan is None:
         raise HTTPException(status_code=404, detail="Escaneo no encontrado")
@@ -121,10 +171,30 @@ async def download_report(scan_id: str) -> FileResponse:
 
 
 @router.get("/scans/{scan_id}/report", response_model=ReportInfo)
-async def report_information(scan_id: str) -> ReportInfo:
+async def report_information(
+    scan_id: str,
+    current_user: User = Depends(get_current_user),
+) -> ReportInfo:
+    _require_scan_access(scan_id, current_user)
     if scan_service.get_scan(scan_id) is None:
         raise HTTPException(status_code=404, detail="Escaneo no encontrado")
     report = scan_service.get_report_info(scan_id)
     if report is None:
         raise HTTPException(status_code=404, detail="Reporte aún no generado")
     return ReportInfo(**report)
+
+
+def _require_scan_access(scan_id: str, current_user: User) -> None:
+    db = SessionLocal()
+    try:
+        stored = crud.obtener_scan(db, scan_id)
+        if stored is None:
+            raise HTTPException(status_code=404, detail="Escaneo no encontrado")
+        role = normalize_role(current_user.role)
+        if role in {"admin", "auditor"}:
+            return
+        owns_website = stored.website is not None and stored.website.user_id == current_user.id
+        if not owns_website and stored.requested_by_user_id != current_user.id:
+            raise HTTPException(status_code=403, detail="No puedes acceder a este escaneo")
+    finally:
+        db.close()

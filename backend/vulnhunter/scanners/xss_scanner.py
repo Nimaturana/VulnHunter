@@ -47,7 +47,7 @@ class XSSScanner:
             "error": None,
         }
         try:
-            response = self.session.get(target_url, timeout=10)
+            response = self.session.get(target_url, timeout=10, allow_redirects=False)
             response.raise_for_status()
             soup = BeautifulSoup(response.text, "html.parser")
             forms = soup.find_all("form")
@@ -73,7 +73,9 @@ class XSSScanner:
 
     def _test_form_xss(self, base_url: str, form) -> tuple[Optional[Dict], int]:
         action_url = urljoin(base_url, form.get("action", ""))
-        if urlparse(action_url).netloc != urlparse(base_url).netloc:
+        action = urlparse(action_url)
+        base = urlparse(base_url)
+        if (action.scheme, action.netloc) != (base.scheme, base.netloc):
             return None, 0
 
         method = form.get("method", "get").lower()
@@ -100,9 +102,13 @@ class XSSScanner:
             data[field_name] = self._payload(token)
             try:
                 if method == "post":
-                    response = self.session.post(action_url, data=data, timeout=10)
+                    response = self.session.post(
+                        action_url, data=data, timeout=10, allow_redirects=False
+                    )
                 else:
-                    response = self.session.get(action_url, params=data, timeout=10)
+                    response = self.session.get(
+                        action_url, params=data, timeout=10, allow_redirects=False
+                    )
                 tested += 1
                 if self._has_executable_injection(response.text, token):
                     return self._finding(response.url, field_name, method.upper(), token), tested
@@ -122,7 +128,7 @@ class XSSScanner:
             params[index] = (name, self._payload(token))
             test_url = urlunparse(parsed._replace(query=urlencode(params)))
             try:
-                response = self.session.get(test_url, timeout=10)
+                response = self.session.get(test_url, timeout=10, allow_redirects=False)
                 tested += 1
                 if self._has_executable_injection(response.text, token):
                     findings.append(self._finding(response.url, name, "GET", token))

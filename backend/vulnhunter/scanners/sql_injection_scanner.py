@@ -105,7 +105,7 @@ class SQLInjectionScanner:
         
         try:
             # 1. Obtener la página principal
-            response = self.session.get(target_url, timeout=15)
+            response = self.session.get(target_url, timeout=15, allow_redirects=False)
             if response.status_code != 200:
                 results["error"] = f"No se pudo acceder a la URL. Código: {response.status_code}"
                 return results
@@ -170,7 +170,12 @@ class SQLInjectionScanner:
             
             # Construir URL completa
             form_url = urljoin(base_url, action)
-            if urlparse(form_url).netloc != urlparse(base_url).netloc:
+            form_origin = urlparse(form_url)
+            base_origin = urlparse(base_url)
+            if (form_origin.scheme, form_origin.netloc) != (
+                base_origin.scheme,
+                base_origin.netloc,
+            ):
                 return vulnerabilities
             if method not in {'get', 'post'}:
                 return vulnerabilities
@@ -207,9 +212,13 @@ class SQLInjectionScanner:
             # Obtener respuesta normal primero (baseline)
             try:
                 if method == 'post':
-                    normal_response = self.session.post(form_url, data=form_data, timeout=15)
+                    normal_response = self.session.post(
+                        form_url, data=form_data, timeout=15, allow_redirects=False
+                    )
                 else:
-                    normal_response = self.session.get(form_url, params=form_data, timeout=15)
+                    normal_response = self.session.get(
+                        form_url, params=form_data, timeout=15, allow_redirects=False
+                    )
                 normal_content = normal_response.text
                 normal_length = len(normal_content)
             except requests.RequestException:
@@ -224,9 +233,13 @@ class SQLInjectionScanner:
                         
                         try:
                             if method == 'post':
-                                response = self.session.post(form_url, data=test_data, timeout=15)
+                                response = self.session.post(
+                                    form_url, data=test_data, timeout=15, allow_redirects=False
+                                )
                             else:
-                                response = self.session.get(form_url, params=test_data, timeout=15)
+                                response = self.session.get(
+                                    form_url, params=test_data, timeout=15, allow_redirects=False
+                                )
                             
                             # Verificar diferentes tipos de SQL injection
                             vuln_found = self._analyze_response_for_sqli(
@@ -266,7 +279,7 @@ class SQLInjectionScanner:
                 return vulnerabilities
             
             # Obtener respuesta normal
-            normal_response = self.session.get(url, timeout=15)
+            normal_response = self.session.get(url, timeout=15, allow_redirects=False)
             
             params = parse_qsl(parsed_url.query, keep_blank_values=True)
             for index, (param_name, _param_value) in enumerate(params):
@@ -276,7 +289,9 @@ class SQLInjectionScanner:
                         modified[index] = (param_name, payload)
                         test_url = urlunparse(parsed_url._replace(query=urlencode(modified)))
 
-                        response = self.session.get(test_url, timeout=15)
+                        response = self.session.get(
+                            test_url, timeout=15, allow_redirects=False
+                        )
 
                         vuln_found = self._analyze_response_for_sqli(
                             response, normal_response, payload, {
@@ -362,7 +377,12 @@ class SQLInjectionScanner:
             href = link['href']
             full_url = urljoin(base_url, href)
 
-            if urlparse(full_url).netloc != urlparse(base_url).netloc:
+            full_origin = urlparse(full_url)
+            base_origin = urlparse(base_url)
+            if (full_origin.scheme, full_origin.netloc) != (
+                base_origin.scheme,
+                base_origin.netloc,
+            ):
                 continue
             if urlparse(full_url).query:
                 urls.append(full_url)

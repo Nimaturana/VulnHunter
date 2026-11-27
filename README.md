@@ -8,8 +8,9 @@ funcionalidades (Package by Feature)**.
 > Estado actual: primer MVP integrado. React consume la API FastAPI, los
 > escaneos y hallazgos se persisten en PostgreSQL y los reportes se generan en
 > PDF. Redis y Celery ejecutan los escaneos fuera del proceso web y PostgreSQL
-> conserva la trazabilidad de tareas y reportes. La autenticación real sigue
-> pendiente. No publiques la API ni escanees terceros sin permiso.
+> conserva la trazabilidad de tareas y reportes. El MVP incluye autenticación,
+> roles y verificación de control del dominio. Aún no debe exponerse como un
+> scanner público irrestricto ni utilizarse contra terceros sin permiso.
 
 ## Estructura
 
@@ -103,12 +104,21 @@ la API.
 La guía completa de instalación, operación y solución de problemas está en
 [`docs/deployment/docker.md`](docs/deployment/docker.md).
 
+## Seguridad de alcance
+
+Antes de iniciar un escaneo activo, el sitio debe estar registrado y verificado
+por archivo HTTP o DNS TXT. Los roles separan administración, auditoría y acceso
+del cliente a sus reportes. Consulta la explicación y prueba paso a paso en
+[`docs/security/scope-authorization-rbac.md`](docs/security/scope-authorization-rbac.md).
+La comparación experimental con OWASP ZAP está descrita en
+[`docs/validation/experimental-evaluation.md`](docs/validation/experimental-evaluation.md).
+
 ## Próximas fases obligatorias
 
-1. Autenticación, organizaciones y roles.
-2. Registro y verificación de propiedad de activos.
-3. política anti-SSRF aplicada a cada petición y redirección.
-4. Ampliar la persistencia PostgreSQL a organizaciones, permisos y auditoría.
+1. Sesiones con cookies HttpOnly, recuperación de cuenta y MFA administrativo.
+2. Organizaciones, membresías y auditoría inmutable de acciones sensibles.
+3. Política anti-SSRF en cada conexión y filtrado de egreso del worker.
+4. Reglas de compromiso persistentes, ventanas y parada de emergencia.
 5. Celery Beat para programación automática y políticas de reintento.
 6. Scanners pasivos y activos con contratos y pruebas de laboratorio.
 7. Alertas, programación de escaneos y observabilidad.

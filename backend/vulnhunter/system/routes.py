@@ -1,6 +1,9 @@
 from datetime import datetime, timezone
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
+
+from vulnhunter.auth.dependencies import require_roles
+from vulnhunter.database.models import User
 
 from vulnhunter.config import get_settings
 from vulnhunter.scans.service import scan_service
@@ -41,5 +44,5 @@ async def health_check() -> dict:
 
 
 @router.get("/stats")
-async def statistics() -> dict:
+async def statistics(_: User = Depends(require_roles("admin", "auditor"))) -> dict:
     return scan_service.statistics()

@@ -1,0 +1,3 @@
+run_id,tool,tool_version,lab,lab_version,test_case,expected_category,result,tp,fp,fn,confidence,duration_seconds,requests,evidence_reference,notes
+1,VulnHunter,0.1.0,OWASP Juice Shop,,CASE-001,XSS,,,,,,,,,
+1,OWASP ZAP,,OWASP Juice Shop,,CASE-001,XSS,,,,,,,,,

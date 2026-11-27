@@ -89,7 +89,7 @@ function Welcome({ onStart, onLogin }: WelcomeProps) {
           transition: "border-color .2s",
         }}
       >
-        <div style={{ ...container, height: "68px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+        <div className="welcome-container" style={{ ...container, height: "68px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
           <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
             <div style={{ width: "34px", height: "34px", borderRadius: "9px", background: c.primary, display: "grid", placeItems: "center", color: "#fff", fontWeight: 700 }}>V</div>
             <div style={{ fontWeight: 700, fontSize: "16px" }}>VulnHunter</div>
@@ -99,19 +99,19 @@ function Welcome({ onStart, onLogin }: WelcomeProps) {
       </header>
 
       {/* ===== HERO ===== */}
-      <section style={{ padding: "80px 0 0", textAlign: "center" }}>
-        <div style={container}>
+      <section className="welcome-hero" style={{ padding: "80px 0 0", textAlign: "center" }}>
+        <div className="welcome-container" style={container}>
           <span style={{ display: "inline-flex", alignItems: "center", gap: "8px", background: "#fff", border: `1px solid ${c.border}`, borderRadius: "999px", padding: "6px 14px 6px 8px", fontSize: "13px", fontWeight: 500, color: c.muted }}>
             <b style={{ background: "#EFF4FF", color: c.primary, fontWeight: 600, fontSize: "12px", padding: "2px 8px", borderRadius: "999px" }}>Seguridad web</b>
             Análisis para sitios autorizados
           </span>
-          <h1 style={{ fontSize: "56px", fontWeight: 700, lineHeight: 1.06, margin: "26px auto 0", maxWidth: "820px", letterSpacing: "-.035em" }}>
+          <h1 className="welcome-title" style={{ fontSize: "56px", fontWeight: 700, lineHeight: 1.06, margin: "26px auto 0", maxWidth: "820px", letterSpacing: "-.035em" }}>
             Encuentra las vulnerabilidades de tu sitio <span style={{ color: c.primary }}>antes que otros.</span>
           </h1>
           <p style={{ fontSize: "18px", color: c.muted, lineHeight: 1.6, maxWidth: "600px", margin: "22px auto 0" }}>
             Detecta vulnerabilidades, evalúa riesgos y genera reportes de seguridad para sitios web autorizados.
           </p>
-          <div style={{ display: "flex", gap: "12px", justifyContent: "center", marginTop: "36px" }}>
+          <div className="welcome-actions" style={{ display: "flex", gap: "12px", justifyContent: "center", marginTop: "36px" }}>
             <button onClick={onStart} style={btn}>Comenzar análisis →</button>
             <button onClick={onLogin} style={btnSec}>Iniciar sesión</button>
           </div>
@@ -120,7 +120,7 @@ function Welcome({ onStart, onLogin }: WelcomeProps) {
           </p>
 
           {/* Preview del dashboard (decorativo) */}
-          <div style={{ margin: "64px auto 0", maxWidth: "1080px" }}>
+          <div className="welcome-preview" style={{ margin: "64px auto 0", maxWidth: "1080px" }}>
             <div style={{ background: "#fff", border: `1px solid ${c.border}`, borderRadius: "16px 16px 0 0", borderBottom: 0, boxShadow: "0 24px 60px rgba(16,24,40,.08)", overflow: "hidden", textAlign: "left", height: "520px" }}>
               {/* barra del navegador falso */}
               <div style={{ height: "40px", borderBottom: `1px solid ${c.border}`, display: "flex", alignItems: "center", gap: "7px", padding: "0 16px", background: "#FCFCFD" }}>
@@ -222,12 +222,12 @@ function Welcome({ onStart, onLogin }: WelcomeProps) {
 
       {/* ===== FUNCIONES ===== */}
       <section id="funciones" style={{ padding: "72px 0" }}>
-        <div style={container}>
+        <div className="welcome-container" style={container}>
           <div style={{ maxWidth: "620px" }}>
             <div style={{ fontSize: "12px", fontWeight: 600, letterSpacing: ".08em", textTransform: "uppercase", color: c.primary }}>Funciones</div>
             <h2 style={{ fontSize: "36px", fontWeight: 700, lineHeight: 1.15, marginTop: "12px" }}>Todo lo necesario para conocer el estado de seguridad de tus sitios</h2>
           </div>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: "20px", marginTop: "40px" }}>
+          <div className="welcome-features" style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: "20px", marginTop: "40px" }}>
             {/* Tarjeta 1: módulos */}
             <div style={{ ...card, borderRadius: "14px", padding: "26px" }}>
               <div style={{ width: "42px", height: "42px", borderRadius: "11px", background: "#EFF4FF", color: c.primary, display: "grid", placeItems: "center", fontSize: "20px" }}>🔍</div>
@@ -277,12 +277,12 @@ function Welcome({ onStart, onLogin }: WelcomeProps) {
 
       {/* ===== CÓMO FUNCIONA ===== */}
       <section id="como" style={{ padding: "0 0 72px" }}>
-        <div style={container}>
+        <div className="welcome-container" style={container}>
           <div style={{ maxWidth: "620px" }}>
             <div style={{ fontSize: "12px", fontWeight: 600, letterSpacing: ".08em", textTransform: "uppercase", color: c.primary }}>Cómo funciona</div>
             <h2 style={{ fontSize: "36px", fontWeight: 700, lineHeight: 1.15, marginTop: "12px" }}>De tu sitio a un reporte en tres pasos</h2>
           </div>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", marginTop: "40px", ...card, borderRadius: "14px" }}>
+          <div className="welcome-steps" style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", marginTop: "40px", ...card, borderRadius: "14px" }}>
             {[
               { n: "01", h: "Registra tu sitio", p: "Agrega el dominio y verifica que eres el propietario o que cuentas con autorización." },
               { n: "02", h: "Ejecuta el escaneo", p: "VulnHunter analiza el sitio con los módulos de seguridad configurados." },
@@ -300,8 +300,8 @@ function Welcome({ onStart, onLogin }: WelcomeProps) {
 
       {/* ===== CTA FINAL ===== */}
       <section style={{ paddingBottom: "72px" }}>
-        <div style={container}>
-          <div style={{ ...card, borderRadius: "16px", padding: "44px 48px", display: "flex", justifyContent: "space-between", alignItems: "center", gap: "40px" }}>
+        <div className="welcome-container" style={container}>
+          <div className="welcome-cta" style={{ ...card, borderRadius: "16px", padding: "44px 48px", display: "flex", justifyContent: "space-between", alignItems: "center", gap: "40px" }}>
             <div>
               <h3 style={{ fontSize: "26px", fontWeight: 700 }}>Empieza a analizar tus sitios</h3>
               <p style={{ fontSize: "15px", color: c.muted, marginTop: "8px" }}>Inicia sesión para acceder a tu panel de seguridad.</p>
@@ -313,7 +313,7 @@ function Welcome({ onStart, onLogin }: WelcomeProps) {
 
       {/* ===== PIE ===== */}
       <footer style={{ borderTop: `1px solid ${c.border}`, background: "#fff" }}>
-        <div style={{ ...container, height: "72px", display: "flex", alignItems: "center", justifyContent: "space-between", fontSize: "13px", color: "#9CA3AF" }}>
+        <div className="welcome-container" style={{ ...container, minHeight: "72px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: "12px", flexWrap: "wrap", fontSize: "13px", color: "#9CA3AF" }}>
           <span>© 2026 VulnHunter</span>
           <nav style={{ display: "flex", gap: "22px" }}>
             <a style={{ color: c.muted, cursor: "pointer" }}>Privacidad</a>

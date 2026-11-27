@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 
 from sqlalchemy.orm import Session
 
-from vulnhunter.database.models import Finding, Report, Scan
+from vulnhunter.database.models import Finding, Report, Scan, Website
 
 
 def crear_scan(
@@ -220,7 +220,8 @@ def listar_todos_scans(db: Session) -> list[Scan]:
 def listar_scans_de_usuario(db: Session, user_id: int) -> list[Scan]:
     return (
         db.query(Scan)
-        .filter(Scan.requested_by_user_id == user_id)
+        .outerjoin(Website, Scan.website_id == Website.id)
+        .filter((Website.user_id == user_id) | (Scan.requested_by_user_id == user_id))
         .order_by(Scan.started_at.desc())
         .all()
     )

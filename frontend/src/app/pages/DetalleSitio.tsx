@@ -7,7 +7,7 @@ import {
 // Paleta central de colores del proyecto.
 import { theme } from "../../shared/styles/theme";
 // Funciones y tipos para hablar con el backend sobre escaneos.
-import { obtenerDetalleEscaneo, obtenerHistorial, reportUrl } from "../../shared/api/scans";
+import { downloadReport, obtenerDetalleEscaneo, obtenerHistorial } from "../../shared/api/scans";
 import type { DetalleEscaneo, HistorialSitio } from "../../shared/api/scans";
 
 const c = theme.colors;
@@ -189,7 +189,7 @@ function DetalleSitio({ scanId, url, onVolver }: DetalleSitioProps) {
             </div>
           </div>
         </div>
-        <button onClick={() => window.open(reportUrl(scanId), "_blank", "noopener,noreferrer")} style={{ display: "inline-flex", alignItems: "center", gap: "7px", background: "#fff", color: c.text, border: `1px solid ${c.border}`, borderRadius: "9px", padding: "9px 14px", fontWeight: 500, fontSize: "13.5px", cursor: "pointer" }}>
+        <button onClick={() => void downloadReport(scanId)} style={{ display: "inline-flex", alignItems: "center", gap: "7px", background: "#fff", color: c.text, border: `1px solid ${c.border}`, borderRadius: "9px", padding: "9px 14px", fontWeight: 500, fontSize: "13.5px", cursor: "pointer" }}>
           Descargar reporte PDF
         </button>
       </div>

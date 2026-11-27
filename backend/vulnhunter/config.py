@@ -35,6 +35,14 @@ class Settings:
     celery_result_backend: str = os.getenv(
         "CELERY_RESULT_BACKEND", os.getenv("REDIS_URL", "redis://localhost:6379/1")
     )
+    auth_secret_key: str = os.getenv("AUTH_SECRET_KEY", os.getenv("SECRET_KEY", "change-me"))
+    access_token_minutes: int = int(os.getenv("ACCESS_TOKEN_MINUTES", "480"))
+    allow_private_targets: bool = os.getenv("ALLOW_PRIVATE_TARGETS", "false").lower() == "true"
+    verification_timeout_seconds: float = float(os.getenv("VERIFICATION_TIMEOUT_SECONDS", "8"))
+    verification_token_minutes: int = int(os.getenv("VERIFICATION_TOKEN_MINUTES", "60"))
+    google_client_id: str = os.getenv("GOOGLE_CLIENT_ID", "").strip()
+    guest_mode_enabled: bool = os.getenv("GUEST_MODE_ENABLED", "false").lower() == "true"
+    guest_session_minutes: int = int(os.getenv("GUEST_SESSION_MINUTES", "60"))
 
 
 @lru_cache
