@@ -149,7 +149,9 @@ def login_guest(db: Session = Depends(get_db)) -> LoginResponse:
     if not settings.guest_mode_enabled:
         raise HTTPException(status_code=404, detail="La demostración para invitados no está habilitada")
 
-    email = "guest.demo@vulnhunter.local"
+    # EmailStr rejects special-use suffixes such as `.local`. This address is
+    # an internal identity only; it is never used to deliver email.
+    email = "invitado@demo.vulnhunter.cl"
     usuario = crud_users.obtener_usuario_por_email(db, email)
     if usuario is None:
         usuario = crud_users.crear_usuario(
